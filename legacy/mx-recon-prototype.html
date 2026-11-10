@@ -1,0 +1,1185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MX-RECON — Email Security &amp; DNS Forensics Console</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='13' fill='none' stroke='%23ffb02e' stroke-width='2'/><circle cx='16' cy='16' r='5' fill='none' stroke='%2339c2ff' stroke-width='2'/><path d='M16 3v6M16 23v6M3 16h6M23 16h6' stroke='%23ffb02e' stroke-width='2'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#08131c; --bg2:#0a1822; --panel:#0d2030; --panel2:#102739;
+  --line:#1c3a4f; --line2:#2c5876;
+  --ink:#e9f3f5; --dim:#8fb0bf; --faint:#587a8c;
+  --cyan:#39c2ff; --teal:#2fe0a8; --amber:#ffb02e; --red:#ff5c6c; --violet:#a08bff;
+  --mono:'IBM Plex Mono',ui-monospace,monospace;
+  --disp:'Space Grotesk',sans-serif;
+  --body:'IBM Plex Sans',system-ui,sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  background:var(--bg); color:var(--ink); font-family:var(--body);
+  font-size:15px; line-height:1.55; min-height:100vh; overflow-x:hidden;
+}
+::selection{background:var(--amber); color:#131313}
+/* ---------- ambient layers ---------- */
+.bg-grid{position:fixed;inset:0;z-index:-3;pointer-events:none;
+  background-image:linear-gradient(rgba(57,194,255,.045) 1px,transparent 1px),
+                   linear-gradient(90deg,rgba(57,194,255,.045) 1px,transparent 1px);
+  background-size:46px 46px;
+  mask-image:radial-gradient(ellipse 90% 80% at 50% 0%,#000 30%,transparent 100%);
+  animation:gridDrift 90s linear infinite;
+}
+@keyframes gridDrift{to{background-position:46px 92px,92px 46px}}
+.bg-glow{position:fixed;inset:0;z-index:-2;pointer-events:none;
+  background:radial-gradient(600px 400px at 12% -5%,rgba(57,194,255,.13),transparent 70%),
+             radial-gradient(700px 500px at 95% 108%,rgba(255,176,46,.10),transparent 70%),
+             radial-gradient(500px 350px at 70% 20%,rgba(47,224,168,.05),transparent 70%);
+}
+body::after{content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.05;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.6'/%3E%3C/svg%3E");
+}
+.scanline{position:fixed;left:0;right:0;top:-4px;height:3px;z-index:60;pointer-events:none;opacity:0;
+  background:linear-gradient(90deg,transparent,var(--cyan),transparent);
+  box-shadow:0 0 18px 2px rgba(57,194,255,.5);}
+body.scanning .scanline{opacity:.7;animation:sweep 2.6s linear infinite}
+@keyframes sweep{from{top:-4px}to{top:100vh}}
+.wrap{max-width:1260px;margin:0 auto;padding:0 26px}
+.hide{display:none!important}
+.mono{font-family:var(--mono)}
+.dim{color:var(--faint)}
+a{color:var(--cyan)}
+/* ---------- topbar ---------- */
+.topbar{position:sticky;top:0;z-index:50;border-bottom:1px solid var(--line);
+  background:rgba(8,19,28,.92);backdrop-filter:blur(6px)}
+.topbar .wrap{display:flex;align-items:center;gap:22px;height:52px;font-family:var(--mono);font-size:11px;letter-spacing:.06em}
+.brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:13px;letter-spacing:.14em}
+.brand svg{display:block}
+.brand .v{color:var(--amber);font-size:10px;border:1px solid rgba(255,176,46,.4);padding:1px 6px;border-radius:2px}
+.tspace{flex:1}
+.tstat{display:flex;align-items:center;gap:7px;color:var(--dim);white-space:nowrap}
+.tstat b{color:var(--ink);font-weight:500}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex:none}
+.dot.ok{background:var(--teal);box-shadow:0 0 8px var(--teal)}
+.dot.warn{background:var(--amber);box-shadow:0 0 8px var(--amber)}
+.dot.bad{background:var(--red);box-shadow:0 0 8px var(--red)}
+.dot.pulse{animation:pulse 1.1s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.35}}
+@media(max-width:820px){.tstat.hidesm{display:none}}
+/* ---------- deck ---------- */
+.deck{display:grid;grid-template-columns:1.15fr .85fr;gap:38px;padding:58px 0 34px;align-items:start}
+.kicker{font-family:var(--mono);font-size:11px;letter-spacing:.28em;color:var(--cyan);margin-bottom:16px;display:flex;align-items:center;gap:10px}
+.kicker::before{content:'';width:26px;height:1px;background:var(--cyan)}
+h1{font-family:var(--disp);font-weight:700;font-size:clamp(2.6rem,5.6vw,4.4rem);line-height:.98;letter-spacing:-.02em}
+h1 .alt{color:transparent;-webkit-text-stroke:1.5px var(--amber)}
+.deck p.lead{color:var(--dim);max-width:56ch;margin:20px 0 24px;font-size:15.5px}
+.mods{display:flex;flex-wrap:wrap;gap:8px}
+.mod{font-family:var(--mono);font-size:10px;letter-spacing:.14em;padding:5px 10px;border:1px solid var(--line2);color:var(--dim);border-radius:2px;transition:.2s;cursor:default}
+.mod:hover{border-color:var(--amber);color:var(--amber);transform:translateY(-2px)}
+/* spec panel */
+.spec{position:relative;border:1px solid var(--line);background:linear-gradient(160deg,var(--panel),var(--bg2));padding:22px 24px;font-family:var(--mono);font-size:12px}
+.spec::before,.spec::after{content:'';position:absolute;width:14px;height:14px;border:2px solid var(--amber)}
+.spec::before{top:-2px;left:-2px;border-right:0;border-bottom:0}
+.spec::after{bottom:-2px;right:-2px;border-left:0;border-top:0}
+.spec h4{font-size:10px;letter-spacing:.24em;color:var(--amber);margin-bottom:14px;font-weight:600}
+.spec-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px dashed rgba(44,88,118,.4)}
+.spec-row:last-child{border-bottom:0}
+.spec-row .k{color:var(--faint)}
+.spec-row .v{color:var(--ink)}
+.spec-row .v.c{color:var(--cyan)} .spec-row .v.g{color:var(--teal)} .spec-row .v.a{color:var(--amber)}
+/* ---------- console ---------- */
+.console{position:relative;border:1px solid var(--line2);background:linear-gradient(180deg,var(--panel),#0b1c2b);padding:26px 28px 22px;margin-bottom:16px}
+.console::before,.console::after{content:'';position:absolute;width:16px;height:16px;border:2px solid var(--cyan)}
+.console::before{top:-2px;left:-2px;border-right:0;border-bottom:0}
+.console::after{bottom:-2px;right:-2px;border-left:0;border-top:0}
+.c-label{font-family:var(--mono);font-size:10px;letter-spacing:.24em;color:var(--faint);margin-bottom:14px;display:flex;justify-content:space-between}
+.formrow{display:grid;grid-template-columns:1fr 230px auto;gap:12px}
+.field{position:relative}
+.field label{position:absolute;top:-7px;left:12px;background:var(--panel);padding:0 6px;font-family:var(--mono);font-size:9px;letter-spacing:.2em;color:var(--faint)}
+input[type=text]{width:100%;background:#081622;border:1px solid var(--line);color:var(--ink);
+  font-family:var(--mono);font-size:16px;padding:14px 16px;border-radius:3px;outline:none;transition:.2s}
+input[type=text]::placeholder{color:#3d5a6c}
+input[type=text]:focus{border-color:var(--amber);box-shadow:0 0 0 3px rgba(255,176,46,.12),0 0 24px rgba(255,176,46,.08)}
+#btnRun{font-family:var(--disp);font-weight:700;font-size:14px;letter-spacing:.16em;
+  background:var(--amber);color:#151006;border:none;padding:0 34px;border-radius:3px;cursor:pointer;
+  display:flex;align-items:center;gap:10px;transition:.2s;white-space:nowrap}
+#btnRun:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 8px 26px rgba(255,176,46,.35);background:#ffc35c}
+#btnRun:active:not(:disabled){transform:translateY(0)}
+#btnRun:disabled{opacity:.55;cursor:wait}
+#btnRun .spin{width:12px;height:12px;border:2px solid #151006;border-top-color:transparent;border-radius:50%;display:none;animation:rot .7s linear infinite}
+#btnRun.busy .spin{display:block}
+@keyframes rot{to{transform:rotate(360deg)}}
+.samples{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;align-items:center}
+.samples .lbl{font-family:var(--mono);font-size:10px;letter-spacing:.18em;color:var(--faint)}
+.schip,.hchip{font-family:var(--mono);font-size:11px;padding:4px 11px;border:1px solid var(--line);color:var(--dim);background:transparent;border-radius:2px;cursor:pointer;transition:.18s}
+.schip:hover,.hchip:hover{border-color:var(--cyan);color:var(--cyan);transform:translateY(-1px)}
+.hchip{border-style:dashed}
+.samples .hist{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+/* pipeline */
+.pipeline{display:flex;list-style:none;margin-top:22px;border-top:1px dashed rgba(44,88,118,.4);padding-top:16px;gap:4px;flex-wrap:wrap}
+.pipeline li{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:#41627a;padding:4px 12px;position:relative;transition:.3s}
+.pipeline li:not(:last-child)::after{content:'›';position:absolute;right:-7px;color:#2b4a5f}
+.pipeline li .led{width:8px;height:8px;border-radius:50%;background:#1d3a4e;transition:.3s;flex:none}
+.pipeline li.active{color:var(--amber)}
+.pipeline li.active .led{background:var(--amber);box-shadow:0 0 10px var(--amber);animation:pulse .9s infinite}
+.pipeline li.done{color:var(--teal)}
+.pipeline li.done .led{background:var(--teal);box-shadow:0 0 6px rgba(47,224,168,.6)}
+/* ---------- results ---------- */
+.rhead{display:flex;align-items:center;gap:16px;margin:44px 0 18px;flex-wrap:wrap}
+.rhead h2{font-family:var(--disp);font-size:clamp(1.2rem,2.4vw,1.7rem);letter-spacing:.02em;font-weight:700}
+.rhead h2 span{color:var(--amber)}
+.rhead .meta{font-family:var(--mono);font-size:11px;color:var(--faint)}
+.ractions{margin-left:auto;display:flex;gap:10px}
+.gbtn{font-family:var(--mono);font-size:11px;letter-spacing:.12em;background:transparent;border:1px solid var(--line2);color:var(--dim);padding:8px 16px;border-radius:3px;cursor:pointer;transition:.2s}
+.gbtn:hover{border-color:var(--cyan);color:var(--cyan);transform:translateY(-1px)}
+.rgrid{display:grid;grid-template-columns:repeat(12,1fr);gap:16px;grid-auto-flow:dense}
+.card{border:1px solid var(--line);background:linear-gradient(170deg,var(--panel),#0b1b29);border-radius:4px;position:relative;overflow:hidden;opacity:0;transform:translateY(16px);transition:opacity .5s ease,transform .5s ease,border-color .25s,box-shadow .25s}
+.card.show{opacity:1;transform:none}
+.card:hover{border-color:var(--line2);box-shadow:0 12px 34px rgba(0,0,0,.35);transform:translateY(-2px)}
+.card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--ac,var(--cyan))}
+.c-score{grid-column:span 4}
+.c-mx{grid-column:span 8}
+.c-spf{grid-column:span 7}
+.c-dkim{grid-column:span 5}
+.c-dmarc{grid-column:span 5}
+.c-rep{grid-column:span 7}
+.c-rbl{grid-column:span 8;grid-row:span 2}
+.c-dns{grid-column:span 4;grid-row:span 2}
+.c-rec{grid-column:span 12}
+.c-inv{grid-column:span 12}
+.ch{display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid rgba(28,58,79,.7)}
+.ch .cid{font-family:var(--mono);font-size:9px;letter-spacing:.2em;color:var(--ac,var(--cyan));border:1px solid currentColor;padding:2px 7px;border-radius:2px;opacity:.85}
+.ch h3{font-family:var(--disp);font-size:13px;letter-spacing:.14em;font-weight:700}
+.ch .chst{margin-left:auto;font-family:var(--mono);font-size:10px;letter-spacing:.1em}
+.cb{padding:18px}
+@media(max-width:1000px){.rgrid > *{grid-column:span 12!important;grid-row:auto!important}}
+@media(max-width:900px){.deck{grid-template-columns:1fr}.formrow{grid-template-columns:1fr}#btnRun{padding:14px}}
+/* chips */
+.chip{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10px;letter-spacing:.08em;padding:3px 9px;border-radius:2px;border:1px solid;white-space:nowrap}
+.chip.ok{color:var(--teal);border-color:rgba(47,224,168,.45);background:rgba(47,224,168,.08)}
+.chip.warn{color:var(--amber);border-color:rgba(255,176,46,.45);background:rgba(255,176,46,.08)}
+.chip.fail{color:var(--red);border-color:rgba(255,92,108,.45);background:rgba(255,92,108,.08)}
+.chip.info{color:var(--cyan);border-color:rgba(57,194,255,.45);background:rgba(57,194,255,.08)}
+.chip.mut{color:var(--dim);border-color:var(--line2);background:transparent}
+/* gauge */
+.gaugewrap{position:relative;width:190px;margin:6px auto 14px}
+.gauge{width:100%;transform:rotate(-90deg)}
+.g-bg{fill:none;stroke:#13293a;stroke-width:10}
+.g-val{fill:none;stroke:var(--amber);stroke-width:10;stroke-linecap:butt;stroke-dasharray:477.5;stroke-dashoffset:477.5;transition:stroke-dashoffset 1.4s cubic-bezier(.2,.8,.2,1),stroke .4s}
+.g-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.g-num{font-family:var(--disp);font-weight:700;font-size:52px;line-height:1}
+.g-lab{font-family:var(--mono);font-size:9px;letter-spacing:.24em;color:var(--faint);margin-top:6px}
+.verdict{text-align:center;margin-bottom:16px}
+.bd{display:grid;grid-template-columns:86px 1fr 52px;gap:10px;align-items:center;padding:7px 0;border-top:1px dashed rgba(44,88,118,.35);font-family:var(--mono);font-size:11px}
+.bd .l{color:var(--dim);letter-spacing:.08em}
+.bd .t{height:6px;background:#122a3c;border-radius:1px;overflow:hidden}
+.bd .t i{display:block;height:100%;width:0;background:var(--teal);transition:width 1s cubic-bezier(.2,.8,.2,1)}
+.bd .v{text-align:right;color:var(--faint)}
+/* tables */
+.tbl{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px}
+.tbl th{text-align:left;font-size:9px;letter-spacing:.18em;color:var(--faint);font-weight:500;padding:6px 8px;border-bottom:1px solid var(--line)}
+.tbl td{padding:9px 8px;border-bottom:1px solid rgba(28,58,79,.5);vertical-align:top}
+.tbl tr:last-child td{border-bottom:0}
+.tbl tr{transition:background .15s}
+.tbl tbody tr:hover{background:rgba(57,194,255,.04)}
+.tbl .num{color:var(--amber)}
+.tbl .host{color:var(--ink);word-break:break-all}
+.ip{font-size:11px;color:var(--cyan);background:rgba(57,194,255,.07);border:1px solid rgba(57,194,255,.2);padding:1px 7px;border-radius:2px;margin:1px 3px 1px 0;display:inline-block}
+/* notes */
+.note{font-size:13px;padding:12px 14px;border-left:3px solid;border-radius:0 3px 3px 0;margin-bottom:12px}
+.note.ok{border-color:var(--teal);background:rgba(47,224,168,.06)}
+.note.warn{border-color:var(--amber);background:rgba(255,176,46,.06)}
+.note.fail{border-color:var(--red);background:rgba(255,92,108,.07)}
+.note.info{border-color:var(--cyan);background:rgba(57,194,255,.06)}
+/* raw record box */
+.rawbox{display:flex;align-items:flex-start;gap:10px;background:#071420;border:1px solid var(--line);border-radius:3px;padding:10px 12px;margin:10px 0}
+.rawbox code{font-family:var(--mono);font-size:11.5px;color:#bfe3ef;word-break:break-all;flex:1;line-height:1.6}
+.copybtn{font-family:var(--mono);font-size:9px;letter-spacing:.12em;background:none;border:1px solid var(--line2);color:var(--dim);padding:3px 8px;border-radius:2px;cursor:pointer;flex:none;transition:.2s}
+.copybtn:hover{color:var(--amber);border-color:var(--amber)}
+/* SPF tree */
+.spf-tree{background:#071420;border:1px solid var(--line);border-radius:3px;padding:12px 14px;margin-top:10px;max-height:240px;overflow:auto}
+.spfn{font-family:var(--mono);font-size:11.5px;padding:2.5px 0;color:#bfe3ef}
+.spfn .tp{color:var(--faint)}
+.lookbar{height:8px;background:#122a3c;border-radius:1px;overflow:hidden;margin:8px 0 4px}
+.lookbar i{display:block;height:100%;background:var(--teal);transition:width 1s ease}
+/* dmarc meter */
+.polmeter{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin:14px 0 6px}
+.polmeter div{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-align:center;padding:7px 2px;border:1px solid var(--line);color:var(--faint);border-radius:2px;transition:.3s}
+.polmeter div.on{color:#10222e;font-weight:600}
+.polmeter div.on.p0{background:var(--red);border-color:var(--red)}
+.polmeter div.on.p1{background:var(--amber);border-color:var(--amber)}
+.polmeter div.on.p2{background:var(--teal);border-color:var(--teal)}
+.polmeter div.on.p3{background:var(--cyan);border-color:var(--cyan)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-family:var(--mono);font-size:12px;margin-top:10px}
+.kv .k{color:var(--faint);letter-spacing:.08em}
+.kv .v{color:var(--ink);word-break:break-all}
+/* recommendations */
+.rec{display:flex;gap:14px;padding:13px 16px;border:1px solid var(--line);border-left-width:3px;border-radius:3px;margin-bottom:10px;background:rgba(13,32,48,.5);font-size:13.5px;transition:.2s}
+.rec:hover{transform:translateX(4px)}
+.rec .tag{font-family:var(--mono);font-size:9px;letter-spacing:.14em;padding:2px 8px;height:fit-content;border-radius:2px;flex:none;margin-top:2px}
+.rec.r0{border-left-color:var(--red)} .rec.r0 .tag{background:rgba(255,92,108,.15);color:var(--red)}
+.rec.r1{border-left-color:var(--amber)} .rec.r1 .tag{background:rgba(255,176,46,.15);color:var(--amber)}
+.rec.r2{border-left-color:var(--cyan)} .rec.r2 .tag{background:rgba(57,194,255,.15);color:var(--cyan)}
+.rec.r3{border-left-color:var(--teal)} .rec.r3 .tag{background:rgba(47,224,168,.15);color:var(--teal)}
+/* ---------- inventory ---------- */
+.inv-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px}
+.fchip{font-family:var(--mono);font-size:10px;letter-spacing:.1em;padding:5px 11px;border:1px solid var(--line);color:var(--dim);background:transparent;border-radius:2px;cursor:pointer;transition:.18s}
+.fchip:hover{border-color:var(--cyan);color:var(--cyan)}
+.fchip.on{border-color:var(--amber);color:var(--amber);background:rgba(255,176,46,.08)}
+.fchip b{opacity:.6;font-weight:500;margin-left:4px}
+#invSearch{width:230px;font-size:12px;padding:8px 12px;margin-left:auto}
+@media(max-width:700px){#invSearch{margin-left:0;width:100%}}
+.inv-count{font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--faint);margin-bottom:10px}
+.inv-scroll{max-height:520px;overflow:auto;border:1px solid var(--line);border-radius:3px;background:#071420}
+.inv-scroll::-webkit-scrollbar{width:8px;height:8px}
+.inv-scroll::-webkit-scrollbar-thumb{background:var(--line2);border-radius:4px}
+.inv-scroll .tbl th{position:sticky;top:0;background:#0a1c2c;z-index:2}
+.tchip{display:inline-block;font-family:var(--mono);font-size:10px;letter-spacing:.1em;padding:2px 9px;border-radius:2px;border:1px solid;font-weight:600}
+.tchip.t-A,.tchip.t-AAAA{color:var(--cyan);border-color:rgba(57,194,255,.5);background:rgba(57,194,255,.08)}
+.tchip.t-CNAME{color:var(--violet);border-color:rgba(160,139,255,.5);background:rgba(160,139,255,.08)}
+.tchip.t-TXT{color:var(--teal);border-color:rgba(47,224,168,.5);background:rgba(47,224,168,.08)}
+.tchip.t-MX{color:var(--amber);border-color:rgba(255,176,46,.5);background:rgba(255,176,46,.08)}
+.tchip.t-NS{color:#7fa6bc;border-color:rgba(127,166,188,.45);background:rgba(127,166,188,.08)}
+.tchip.t-PTR{color:#6ee0d2;border-color:rgba(110,224,210,.45);background:rgba(110,224,210,.08)}
+.tchip.t-SOA{color:#e8a0ff;border-color:rgba(232,160,255,.45);background:rgba(232,160,255,.08)}
+.src-tag{font-family:var(--mono);font-size:9px;letter-spacing:.12em;padding:2px 7px;border-radius:2px}
+.src-tag.zone{color:var(--dim);border:1px solid var(--line2)}
+.src-tag.rbl{color:var(--red);border:1px solid rgba(255,92,108,.4)}
+.inv-val{color:#bfe3ef;word-break:break-all;font-size:11.5px}
+/* log */
+.logwrap{margin:40px 0 26px;border:1px solid var(--line);border-radius:4px;overflow:hidden;background:#060f17}
+.loghead{display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid var(--line);background:#0a1926;font-family:var(--mono);font-size:10px;letter-spacing:.18em;color:var(--faint)}
+.loghead .lc{display:flex;gap:5px}
+.loghead .lc i{width:9px;height:9px;border-radius:50%;display:block}
+.loghead .clear{margin-left:auto;background:none;border:1px solid var(--line2);color:var(--faint);font-family:var(--mono);font-size:9px;letter-spacing:.12em;padding:3px 9px;cursor:pointer;border-radius:2px;transition:.2s}
+.loghead .clear:hover{color:var(--red);border-color:var(--red)}
+#logbody{height:230px;overflow-y:auto;padding:12px 16px;font-family:var(--mono);font-size:11.5px;line-height:1.75}
+#logbody::-webkit-scrollbar{width:8px}
+#logbody::-webkit-scrollbar-thumb{background:var(--line2);border-radius:4px}
+.ll{white-space:pre-wrap;word-break:break-all}
+.ll .ts{color:#33566b}
+.ll.info .m{color:var(--cyan)} .ll.ok .m{color:var(--teal)} .ll.warn .m{color:var(--amber)}
+.ll.fail .m{color:var(--red)} .ll.dns .m{color:var(--dim)}
+.caret{display:inline-block;width:8px;height:13px;background:var(--amber);vertical-align:-2px;animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+/* footer */
+footer{border-top:1px solid var(--line);padding:26px 0 40px;font-family:var(--mono);font-size:11px;color:var(--faint);line-height:1.9}
+footer .wrap{display:flex;gap:40px;flex-wrap:wrap}
+footer .col{max-width:520px}
+footer b{color:var(--dim);letter-spacing:.14em}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="bg-grid"></div><div class="bg-glow"></div><div class="scanline"></div>
+
+<header class="topbar">
+  <div class="wrap">
+    <div class="brand">
+      <svg width="22" height="22" viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="13" stroke="#ffb02e" stroke-width="2"/><circle cx="16" cy="16" r="5" stroke="#39c2ff" stroke-width="2"/><path d="M16 1v7M16 24v7M1 16h7M24 16h7" stroke="#ffb02e" stroke-width="2"/></svg>
+      MX-RECON <span class="v">v2.5</span>
+    </div>
+    <div class="tspace"></div>
+    <div class="tstat hidesm">SESSION <b id="sessId">—</b></div>
+    <div class="tstat">UTC <b id="clock">--:--:--</b></div>
+    <div class="tstat"><span class="dot" id="resDot"></span><span id="resLabel">RESOLVER: probing…</span></div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- ============ COMMAND DECK ============ -->
+  <section class="deck">
+    <div>
+      <div class="kicker">EMAIL SECURITY TESTING · DNS HOST RECORD FORENSICS</div>
+      <h1>DISSECT ANY<br>DOMAIN'S <span class="alt">MAIL STACK</span></h1>
+      <p class="lead">Live reconnaissance against a domain's entire email delivery chain — MX topology,
+      SPF policy trees, DKIM signatures, DMARC posture, reverse-DNS hygiene and real-time blacklist /
+      spam-domain lookups across 10 RBL zones. Every observed record is captured into a full raw inventory.
+      Everything executes in your browser via DNS-over-HTTPS.</p>
+      <div class="mods">
+        <span class="mod">MX</span><span class="mod">CNAME</span><span class="mod">SPF</span>
+        <span class="mod">DKIM</span><span class="mod">DMARC</span><span class="mod">PTR</span>
+        <span class="mod">RBL ×10</span><span class="mod">MTA-STS</span><span class="mod">TLS-RPT</span>
+        <span class="mod">BIMI</span><span class="mod">FULL RECORD DUMP</span>
+      </div>
+    </div>
+    <aside class="spec">
+      <h4>// PROBE MANIFEST</h4>
+      <div class="spec-row"><span class="k">MODULES</span><span class="v a">10 ACTIVE + INVENTORY</span></div>
+      <div class="spec-row"><span class="k">CHECKS PER SCAN</span><span class="v c">40–120</span></div>
+      <div class="spec-row"><span class="k">TRANSPORT</span><span class="v">DNS-over-HTTPS · JSON</span></div>
+      <div class="spec-row"><span class="k">RESOLVERS</span><span class="v g">dns.google ⇄ cloudflare</span></div>
+      <div class="spec-row"><span class="k">RBL ZONES</span><span class="v">SPAMHAUS · SPAMCOP · SORBS +7</span></div>
+      <div class="spec-row"><span class="k">RECORD CAPTURE</span><span class="v g">A·AAAA·CNAME·TXT·MX·NS·PTR·SOA</span></div>
+      <div class="spec-row"><span class="k">DATA EXFILTRATION</span><span class="v g">NONE — CLIENT-SIDE</span></div>
+    </aside>
+  </section>
+
+  <!-- ============ SCAN CONSOLE ============ -->
+  <section class="console" id="consoleBox">
+    <div class="c-label"><span>TARGET ACQUISITION</span><span>PRESS ⏎ TO ENGAGE</span></div>
+    <div class="formrow">
+      <div class="field"><label>HOSTNAME / DOMAIN / EMAIL</label>
+        <input type="text" id="inDomain" placeholder="e.g. example.com" autocomplete="off" spellcheck="false"></div>
+      <div class="field"><label>DKIM SELECTOR (OPT.)</label>
+        <input type="text" id="inSelector" placeholder="blank = auto-probe 18" autocomplete="off" spellcheck="false"></div>
+      <button id="btnRun"><span class="spin"></span><span id="btnRunTxt">RUN SCAN</span></button>
+    </div>
+    <div class="samples">
+      <span class="lbl">SAMPLES ›</span>
+      <button class="schip" data-d="gmail.com">gmail.com</button>
+      <button class="schip" data-d="microsoft.com">microsoft.com</button>
+      <button class="schip" data-d="proton.me">proton.me</button>
+      <button class="schip" data-d="yahoo.com">yahoo.com</button>
+      <button class="schip" data-d="cloudflare.com">cloudflare.com</button>
+      <span class="hist" id="histWrap"><span class="lbl">RECENT ›</span></span>
+    </div>
+    <ol class="pipeline" id="pipeline">
+      <li data-step="enum"><span class="led"></span>01 ENUM</li>
+      <li data-step="mx"><span class="led"></span>02 MX</li>
+      <li data-step="spf"><span class="led"></span>03 SPF</li>
+      <li data-step="dkim"><span class="led"></span>04 DKIM</li>
+      <li data-step="dmarc"><span class="led"></span>05 DMARC</li>
+      <li data-step="rbl"><span class="led"></span>06 RBL</li>
+      <li data-step="report"><span class="led"></span>07 REPORT</li>
+    </ol>
+  </section>
+
+  <!-- ============ RESULTS ============ -->
+  <section id="results" class="hide">
+    <div class="rhead">
+      <h2>ANALYSIS REPORT — <span id="rDomain"></span></h2>
+      <span class="meta" id="rMeta"></span>
+      <div class="ractions">
+        <button class="gbtn" id="btnExport">⬇ EXPORT JSON</button>
+        <button class="gbtn" id="btnRescan">⟳ RE-SCAN</button>
+      </div>
+    </div>
+    <div class="rgrid">
+
+      <article class="card c-score" style="--ac:var(--amber)">
+        <header class="ch"><span class="cid">M-01</span><h3>POSTURE SCORE</h3><span class="chst" id="st-score"></span></header>
+        <div class="cb" id="cb-score"></div>
+      </article>
+
+      <article class="card c-mx" style="--ac:var(--cyan)">
+        <header class="ch"><span class="cid">M-02</span><h3>MX INFRASTRUCTURE</h3><span class="chst" id="st-mx"></span></header>
+        <div class="cb" id="cb-mx"></div>
+      </article>
+
+      <article class="card c-spf" style="--ac:var(--teal)">
+        <header class="ch"><span class="cid">M-03</span><h3>SPF POLICY · INCLUDE TREE</h3><span class="chst" id="st-spf"></span></header>
+        <div class="cb" id="cb-spf"></div>
+      </article>
+
+      <article class="card c-dkim" style="--ac:var(--violet)">
+        <header class="ch"><span class="cid">M-04</span><h3>DKIM SIGNING KEYS</h3><span class="chst" id="st-dkim"></span></header>
+        <div class="cb" id="cb-dkim"></div>
+      </article>
+
+      <article class="card c-dmarc" style="--ac:var(--amber)">
+        <header class="ch"><span class="cid">M-05</span><h3>DMARC POSTURE</h3><span class="chst" id="st-dmarc"></span></header>
+        <div class="cb" id="cb-dmarc"></div>
+      </article>
+
+      <article class="card c-rep" style="--ac:var(--red)">
+        <header class="ch"><span class="cid">M-06</span><h3>DOMAIN REPUTATION · SPAM LISTS</h3><span class="chst" id="st-rep"></span></header>
+        <div class="cb" id="cb-rep"></div>
+      </article>
+
+      <article class="card c-rbl" style="--ac:var(--red)">
+        <header class="ch"><span class="cid">M-07</span><h3>IP BLACKLIST MATRIX</h3><span class="chst" id="st-rbl"></span></header>
+        <div class="cb" id="cb-rbl"></div>
+      </article>
+
+      <article class="card c-dns" style="--ac:var(--cyan)">
+        <header class="ch"><span class="cid">M-08</span><h3>ZONE FILE &amp; PROTOCOLS</h3><span class="chst" id="st-dns"></span></header>
+        <div class="cb" id="cb-dns"></div>
+      </article>
+
+      <article class="card c-rec" style="--ac:var(--teal)">
+        <header class="ch"><span class="cid">M-09</span><h3>REMEDIATION DIRECTIVES</h3><span class="chst" id="st-rec"></span></header>
+        <div class="cb" id="cb-rec"></div>
+      </article>
+
+      <article class="card c-inv" style="--ac:var(--cyan)">
+        <header class="ch"><span class="cid">M-10</span><h3>FULL RECORD INVENTORY — RAW CAPTURE</h3><span class="chst" id="st-inv"></span></header>
+        <div class="cb" id="cb-inv"></div>
+      </article>
+
+    </div>
+  </section>
+
+  <!-- ============ LOG ============ -->
+  <section class="logwrap">
+    <div class="loghead">
+      <span class="lc"><i style="background:var(--red)"></i><i style="background:var(--amber)"></i><i style="background:var(--teal)"></i></span>
+      SCAN LOG — STDOUT <span class="caret"></span>
+      <button class="clear" id="btnClearLog">CLEAR</button>
+    </div>
+    <div id="logbody"></div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="col"><b>NOTICE //</b> All lookups execute client-side through public DNS-over-HTTPS endpoints
+    (dns.google, cloudflare-dns.com). No target data is transmitted to any MX-RECON server. Some RBL operators
+    (notably Spamhaus) restrict queries from public resolvers — results marked <span style="color:var(--amber)">ERR/BLOCKED</span>
+    are inconclusive, not clean.</div>
+    <div class="col"><b>OPERATOR NOTES //</b> Press <span style="color:var(--amber)">/</span> anywhere to focus the target field.
+    Enter engages the scan. Blank DKIM selector triggers auto-probing of 18 common selectors.
+    The M-10 inventory captures every answer record observed during the run — filter by type or search.
+    Export produces a machine-readable JSON dossier including the full inventory.<br>MX-RECON © 2026 — reconnaissance tooling, use responsibly.</div>
+  </div>
+</footer>
+
+<script>
+/* ================================================================
+   MX-RECON — Email Security & DNS Forensics (client-side, DoH)
+   ================================================================ */
+'use strict';
+
+const $  = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const T = {A:1, NS:2, CNAME:5, SOA:6, PTR:12, MX:15, TXT:16, AAAA:28};
+const TNAME = {1:'A', 2:'NS', 5:'CNAME', 6:'SOA', 12:'PTR', 15:'MX', 16:'TXT', 28:'AAAA'};
+
+let resolverName = '—', scanBusy = false, REPORT = null;
+let VAULT = [];   // full capture of every observed answer record
+
+/* ---------------- DoH layer ---------------- */
+async function dnsQuery(name, type, cat='zone'){
+  const eps = [
+    ['dns.google',        `https://dns.google/resolve?name=${encodeURIComponent(name)}&type=${type}`],
+    ['cloudflare-dns.com',`https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=${type}`]
+  ];
+  for(const [who,u] of eps){
+    try{
+      const ctl = new AbortController(); const to = setTimeout(()=>ctl.abort(), 9000);
+      const res = await fetch(u, {headers:{'accept':'application/dns-json'}, signal:ctl.signal});
+      clearTimeout(to);
+      const j = await res.json();
+      if(j && typeof j.Status === 'number'){
+        j._resolver = who;
+        /* ---- record vault capture ---- */
+        if(Array.isArray(j.Answer)) j.Answer.forEach(a=>{
+          const tn = TNAME[a.type];
+          if(tn) VAULT.push({qname:String(name).toLowerCase(), rtype:tn, data:a.data, ttl:(a.TTL ?? null), cat});
+        });
+        return j;
+      }
+    }catch(e){ /* fall through */ }
+  }
+  return {Status:-1, Answer:[], error:true};
+}
+const getAns = (r,t) => (r && Array.isArray(r.Answer) ? r.Answer : []).filter(a=>a.type===t).map(a=>a.data);
+const getTXT = r => getAns(r,T.TXT);
+
+/* ---------------- log console ---------------- */
+const logbody = $('#logbody');
+function log(msg, cls='info'){
+  const ts = new Date().toISOString().slice(11,19);
+  const d = document.createElement('div');
+  d.className = 'll ' + cls;
+  d.innerHTML = `<span class="ts">[${ts}]</span> <span class="m">${msg}</span>`;
+  logbody.appendChild(d);
+  logbody.scrollTop = logbody.scrollHeight;
+}
+$('#btnClearLog').onclick = () => { logbody.innerHTML=''; log('log buffer flushed','dns'); };
+
+/* ---------------- clock + session ---------------- */
+$('#sessId').textContent = Math.random().toString(16).slice(2,8).toUpperCase();
+setInterval(()=>{ $('#clock').textContent = new Date().toISOString().slice(11,19); }, 1000);
+$('#clock').textContent = new Date().toISOString().slice(11,19);
+
+/* ---------------- boot ---------------- */
+(async function boot(){
+  log('MX-RECON v2.5.0 — forensic kernel initialised','ok');
+  log('modules mounted: MX · CNAME · SPF · DKIM · DMARC · PTR · RBL · MTA-STS · TLS-RPT · BIMI · INVENTORY','dns');
+  const t0 = performance.now();
+  const r = await dnsQuery('iana.org','A','boot');
+  const ms = Math.round(performance.now()-t0);
+  const dot = $('#resDot'), lbl = $('#resLabel');
+  if(r.Status >= 0){
+    resolverName = r._resolver;
+    dot.className='dot ok'; lbl.innerHTML = `RESOLVER: <b>${esc(r._resolver)}</b> · ${ms}ms`;
+    log(`resolver online — ${r._resolver} · ${ms} ms round-trip`,'ok');
+  } else {
+    dot.className='dot bad'; lbl.textContent = 'RESOLVER: OFFLINE';
+    log('resolver probe failed — network or CORS restriction','fail');
+  }
+  log('record vault armed — every observed answer will be captured','dns');
+  log('armed. awaiting target… (press / to focus)','dns');
+  VAULT = []; // discard boot-probe capture
+})();
+
+/* ---------------- input helpers ---------------- */
+function normalizeDomain(raw){
+  let d = (raw||'').trim().toLowerCase();
+  if(d.includes('@')) d = d.split('@').pop();
+  d = d.replace(/^[a-z]+:\/\//,'').split('/')[0].split(':')[0].split('?')[0];
+  d = d.replace(/^_dmarc\./,'');
+  return d;
+}
+const validDomain = d => /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/.test(d);
+
+/* history */
+function loadHist(){ try{ return JSON.parse(localStorage.getItem('mx_recon.hist')||'[]'); }catch(e){ return []; } }
+function saveHist(d){
+  let h = loadHist().filter(x=>x!==d); h.unshift(d); h = h.slice(0,4);
+  try{ localStorage.setItem('mx_recon.hist', JSON.stringify(h)); }catch(e){}
+  renderHist();
+}
+function renderHist(){
+  const w = $('#histWrap');
+  w.querySelectorAll('.hchip').forEach(n=>n.remove());
+  loadHist().forEach(d=>{
+    const b = document.createElement('button');
+    b.className='hchip'; b.textContent=d;
+    b.onclick=()=>{ $('#inDomain').value=d; startScan(); };
+    w.appendChild(b);
+  });
+}
+renderHist();
+
+/* ---------------- pipeline ---------------- */
+function setPhase(step, state){
+  const li = document.querySelector(`[data-step="${step}"]`);
+  if(!li) return;
+  li.classList.remove('active','done');
+  if(state) li.classList.add(state);
+}
+function resetPipeline(){ $$('#pipeline li').forEach(li=>li.classList.remove('active','done')); }
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+
+/* ================================================================
+   SCAN PIPELINE
+   ================================================================ */
+const COMMON_SELECTORS = ['google','selector1','selector2','s1','s2','k1','k2','default','mail','mx','protonmail','pm1','sig1','dkim','dkim1','m1','smtp','zmail'];
+
+const RBL_IP = [
+  {zone:'zen.spamhaus.org',            name:'Spamhaus ZEN',      url:'https://check.spamhaus.org/'},
+  {zone:'bl.spamcop.net',              name:'SpamCop BL',        url:'https://www.spamcop.net/bl.shtml'},
+  {zone:'b.barracudacentral.org',      name:'Barracuda BRBL',    url:'https://www.barracudacentral.org/rbl/removal-request'},
+  {zone:'dnsbl.sorbs.net',             name:'SORBS Composite',   url:'https://www.sorbs.net/'},
+  {zone:'psbl.surriel.com',            name:'PSBL',              url:'http://psbl.surriel.com/'},
+  {zone:'spam.dnsbl.sorbs.net',        name:'SORBS Spam',        url:'https://www.sorbs.net/'},
+  {zone:'dnsbl-1.uceprotect.net',      name:'UCEprotect L1',     url:'http://www.uceprotect.net/'},
+  {zone:'db.wpbl.info',                name:'WPBL',              url:'http://www.wpbl.info/'}
+];
+const RBL_DOM = [
+  {zone:'dbl.spamhaus.org',  name:'Spamhaus DBL', url:'https://check.spamhaus.org/'},
+  {zone:'multi.surbl.org',   name:'SURBL Multi',  url:'https://www.surbl.org/'},
+  {zone:'multi.uribl.com',   name:'URIBL Multi',  url:'https://www.uribl.com/'}
+];
+
+function revIP(ip){
+  if(ip.includes(':')){
+    const parts = ip.split('::');
+    const left = parts[0]?parts[0].split(':'):[];
+    const right = parts.length>1 && parts[1] ? parts[1].split(':') : [];
+    const mid = Array(Math.max(0, 8-left.length-right.length)).fill('0');
+    return [...left,...mid,...right].map(p=>p.padStart(4,'0')).join('').split('').reverse().join('.') + '.ip6.arpa';
+  }
+  return ip.split('.').reverse().join('.') + '.in-addr.arpa';
+}
+
+async function startScan(){
+  if(scanBusy) return;
+  const domain = normalizeDomain($('#inDomain').value);
+  if(!validDomain(domain)){
+    log(`invalid target rejected: "${esc(domain||'(empty)')}"`,'fail');
+    $('#inDomain').focus(); $('#inDomain').style.borderColor='var(--red)';
+    setTimeout(()=>$('#inDomain').style.borderColor='',1200);
+    return;
+  }
+  const selector = $('#inSelector').value.trim().toLowerCase().replace(/\._domainkey\..*$/,'');
+  scanBusy = true;
+  VAULT = [];   // fresh capture vault per scan
+  const btn = $('#btnRun'); btn.disabled = true; btn.classList.add('busy');
+  $('#btnRunTxt').textContent = 'SCANNING';
+  document.body.classList.add('scanning');
+  resetPipeline();
+  $('#results').classList.add('hide');
+  const tStart = performance.now();
+
+  REPORT = { target:domain, selector:selector||'(auto)', started:new Date().toISOString(), resolver:resolverName };
+  const recs = [];
+  const R = (sev,tag,html)=>recs.push({sev,tag,html});
+
+  log(`──── ENGAGING TARGET: ${esc(domain).toUpperCase()} ────`,'info');
+  $('#rDomain').textContent = domain;
+  saveHist(domain);
+
+  try{
+  /* ---------- 01 ENUM ---------- */
+  setPhase('enum','active');
+  log(`[01] zone enumeration: A / AAAA / NS / SOA / TXT / CNAME`,'dns');
+  const [qA,qAAAA,qNS,qSOA,qTXT,qCNAME,qWWW] = await Promise.all([
+    dnsQuery(domain,'A'), dnsQuery(domain,'AAAA'), dnsQuery(domain,'NS'),
+    dnsQuery(domain,'SOA'), dnsQuery(domain,'TXT'), dnsQuery(domain,'CNAME'),
+    dnsQuery('www.'+domain,'CNAME')
+  ]);
+  const apexA = getAns(qA,T.A), apexAAAA = getAns(qAAAA,T.AAAA),
+        ns = getAns(qNS,T.NS), soa = getAns(qSOA,T.SOA)[0]||null,
+        apexTXT = getTXT(qTXT), apexCNAME = getAns(qCNAME,T.CNAME)[0]||null,
+        wwwCNAME = getAns(qWWW,T.CNAME)[0]||null;
+  log(`A=${apexA.length} AAAA=${apexAAAA.length} NS=${ns.length} TXT=${apexTXT.length}`,'dns');
+  if(apexCNAME) log(`apex CNAME detected: ${esc(apexCNAME)} (RFC-1034 edge case)`,'warn');
+  setPhase('enum','done'); await sleep(120);
+
+  /* ---------- 02 MX ---------- */
+  setPhase('mx','active');
+  const qMX = await dnsQuery(domain,'MX');
+  let mx = getAns(qMX,T.MX).map(d=>{
+    const sp = d.split(/\s+/); return {prio:+sp[0], host:sp[1].replace(/\.$/,'')};
+  }).sort((a,b)=>a.prio-b.prio);
+  log(`[02] MX enumeration → ${mx.length} record(s)`,'dns');
+
+  const mxInfo = {};
+  if(mx.length){
+    await Promise.all(mx.map(async m=>{
+      const [a4,a6,cn] = await Promise.all([
+        dnsQuery(m.host,'A'), dnsQuery(m.host,'AAAA'), dnsQuery(m.host,'CNAME')
+      ]);
+      const ips = [...getAns(a4,T.A), ...getAns(a6,T.AAAA)];
+      let ptr = null;
+      if(ips[0]){
+        const qp = await dnsQuery(revIP(ips[0]),'PTR');
+        ptr = (getAns(qp,T.PTR)[0]||'').replace(/\.$/,'') || null;
+      }
+      mxInfo[m.host] = {ips, ptr, cname: getAns(cn,T.CNAME).length>0};
+    }));
+    const noPtr = mx.filter(m=>!mxInfo[m.host].ptr);
+    const noA   = mx.filter(m=>!mxInfo[m.host].ips.length);
+    const cnamMx= mx.filter(m=>mxInfo[m.host].cname);
+    if(cnamMx.length){ log(`RFC 2181 violation: ${cnamMx.length} MX target(s) are CNAMEs`,'warn');
+      R(1,'RFC','MX target(s) point to a CNAME, violating RFC 2181 §10.3 — replace with direct A/AAAA records.'); }
+    if(noA.length){ log(`${noA.length} MX host(s) unresolvable to IP`,'fail');
+      R(0,'MX',`MX host(s) with no A/AAAA record — mail delivery to them will fail: <span class="mono">${noA.map(m=>esc(m.host)).join(', ')}</span>.`); }
+    if(noPtr.length && mx.length){ log(`${noPtr.length}/${mx.length} MX host(s) missing PTR`,'warn');
+      R(2,'PTR','Missing reverse-DNS (PTR) on mail server IPs — many receivers greylist or reject mail from hosts without matching rDNS.'); }
+  } else {
+    if(apexA.length){ log('no MX records — implicit MX fallback on apex A (RFC 5321 §5.1)','warn');
+      R(2,'MX','No MX records published; senders fall back to the apex A record. Publish explicit MX records for reliability.'); }
+    else { log('no MX and no A record — domain cannot receive mail','fail');
+      R(0,'MX','Domain has neither MX nor A records — it cannot receive email at all.'); }
+  }
+  setPhase('mx','done'); await sleep(120);
+
+  /* ---------- 03 SPF ---------- */
+  setPhase('spf','active');
+  const spfRec = apexTXT.find(t=>/^v=spf1(\s|$)/i.test(t)) || null;
+  let spfTree = null, spfAll = null, spfIps = 0;
+  if(spfRec){
+    log(`[03] SPF record located — walking include tree…`,'dns');
+    spfTree = await spfWalk(domain, 0, new Set([domain.toLowerCase()]), {nodes:1});
+    spfAll  = collectAll(spfTree);
+    spfIps  = (spfRec.match(/\bip[46]:/gi)||[]).length;
+    log(`include-tree DNS lookups: ${spfTree.lookups}/10 budget`,'dns');
+    if(spfAll === '+all'){ R(0,'SPF','SPF ends in <span class="mono">+all</span> — any host on the internet is authorised to send as this domain. Change to <span class="mono">-all</span> immediately.'); }
+    if(spfAll === '?all') R(1,'SPF','SPF ends in <span class="mono">?all</span> (neutral) — receivers gain no enforcement signal. Prefer <span class="mono">-all</span>.');
+    if(spfAll === '~all') R(3,'SPF','SPF ends in <span class="mono">~all</span> (softfail). Once fully mapped, tighten to <span class="mono">-all</span> for hard enforcement.');
+    if(!spfAll)           R(1,'SPF','SPF record has no <span class="mono">all</span> terminator — behaviour is undefined. Append <span class="mono">-all</span>.');
+    if(spfTree.lookups > 10){ R(1,'SPF',`SPF requires ~${spfTree.lookups} DNS lookups — beyond the RFC 7208 limit of 10. Receivers may stop evaluation and treat SPF as absent. Flatten includes or use macros.`); log(`SPF exceeds 10-lookup RFC limit (${spfTree.lookups})`,'warn'); }
+  } else {
+    log('no SPF record found','fail');
+    R(0,'SPF','No SPF record published. Any host can spoof mail from this domain. Start with <span class="mono">v=spf1 mx -all</span> and add legitimate senders.');
+  }
+  setPhase('spf','done'); await sleep(120);
+
+  /* ---------- 04 DKIM ---------- */
+  setPhase('dkim','active');
+  const selList = selector ? [selector] : COMMON_SELECTORS;
+  log(`[04] DKIM probe — ${selector?`selector "${esc(selector)}"`:`auto-scanning ${selList.length} common selectors`}`,'dns');
+  const dkimHits = (await Promise.all(selList.map(async s=>{
+    const name = `${s}._domainkey.${domain}`;
+    const r = await dnsQuery(name,'TXT');
+    const t = getTXT(r).find(x=>/v=dkim1/i.test(x)||/(^|;\s*)p=/i.test(x));
+    return t ? {selector:s, raw:t} : null;
+  }))).filter(Boolean);
+  let bestBits = 0;
+  dkimHits.forEach(k=>{
+    const m = k.raw.match(/(^|;\s*)p=([^;\s]*)/i);
+    k.key = m ? m[2] : '';
+    k.revoked = k.key === '';
+    k.algo = (k.raw.match(/(^|;\s*)k=([^;\s]+)/i)||[,'','rsa'])[2].toLowerCase();
+    const L = k.key.length;
+    k.bits = k.revoked ? 0 : L < 250 ? 1024 : L < 560 ? 2048 : 4096;
+    bestBits = Math.max(bestBits, k.bits);
+    log(`key found: ${esc(k.selector)}._domainkey — ${k.revoked?'REVOKED (empty p=)':k.algo.toUpperCase()+' ~'+k.bits+'-bit'}`, k.revoked?'warn':'ok');
+  });
+  if(!dkimHits.length){
+    log('no DKIM keys discovered','fail');
+    R(1,'DKIM', selector
+      ? `No DKIM record at <span class="mono">${esc(selector)}._domainkey</span>. Verify the selector with your provider or leave the field blank to auto-probe.`
+      : 'No DKIM key found among 18 common selectors. Unsigned mail is trivially spoofable and scores poorly with Gmail/Outlook. Publish a 2048-bit key.');
+  } else if(bestBits === 1024) R(2,'DKIM','A 1024-bit DKIM key was detected — factorable by well-resourced adversaries. Rotate to 2048-bit.');
+  setPhase('dkim','done'); await sleep(120);
+
+  /* ---------- 05 DMARC ---------- */
+  setPhase('dmarc','active');
+  const qDM = await dnsQuery('_dmarc.'+domain,'TXT');
+  const dmRec = getTXT(qDM).find(t=>/v=DMARC1/i.test(t)) || null;
+  let dm = null;
+  if(dmRec){
+    dm = {};
+    dmRec.split(';').forEach(p=>{ const i=p.indexOf('='); if(i>0) dm[p.slice(0,i).trim().toLowerCase()]=p.slice(i+1).trim(); });
+    log(`[05] DMARC located — policy=${esc(dm.p||'?')} pct=${esc(dm.pct||'100')}`,'dns');
+    if((dm.p||'').toLowerCase()==='none')  R(1,'DMARC','DMARC policy is <span class="mono">p=none</span> (monitor only). Forgery is not blocked — advance to <span class="mono">quarantine</span>, then <span class="mono">reject</span>.');
+    if(dm.p && !dm.rua) R(2,'DMARC','No <span class="mono">rua=</span> aggregate reporting address — you are flying blind on authentication failures.');
+    if(dm.pct && +dm.pct < 100) R(3,'DMARC',`DMARC applies to only ${esc(dm.pct)}% of messages. Ramp to <span class="mono">pct=100</span> when reports are clean.`);
+  } else {
+    log('no DMARC record at _dmarc.'+esc(domain),'fail');
+    R(0,'DMARC','No DMARC record. Spoofed mail from this domain faces zero policy enforcement. Minimum viable: <span class="mono">v=DMARC1; p=none; rua=mailto:dmarc@'+esc(domain)+'</span>.');
+  }
+  setPhase('dmarc','done'); await sleep(120);
+
+  /* ---------- 06 RBL ---------- */
+  setPhase('rbl','active');
+  const probeIPs = [...new Set(mx.flatMap(m=>mxInfo[m.host]?.ips||[]))].slice(0,3);
+  log(`[06] blacklist sweep — ${probeIPs.length} IP(s) × ${RBL_IP.length} zones, ${RBL_DOM.length} domain lists`,'dns');
+
+  const classify = r => {
+    const a = getAns(r,T.A);
+    if(a.length){
+      if(a.some(x=>/^127\.255\.255\./.test(x))) return {s:'blocked', code:a[0]};
+      return {s:'listed', code:a[0]};
+    }
+    if(r.Status===0 || r.Status===3) return {s:'clean'};
+    return {s:'err'};
+  };
+  const ipMatrix = await Promise.all(RBL_IP.map(async list=>({
+    list,
+    cells: await Promise.all(probeIPs.map(async ip=>({ip, res: classify(await dnsQuery(`${revIP(ip)}.${list.zone}`,'A','rbl'))})))
+  })));
+  const domMatrix = await Promise.all(RBL_DOM.map(async list=>({
+    list, res: classify(await dnsQuery(`${domain}.${list.zone}`,'A','rbl'))
+  })));
+
+  const listedCount  = ipMatrix.flatMap(r=>r.cells).filter(c=>c.res.s==='listed').length
+                     + domMatrix.filter(r=>r.res.s==='listed').length;
+  const blockedCount = ipMatrix.flatMap(r=>r.cells).filter(c=>c.res.s==='blocked'||c.res.s==='err').length
+                     + domMatrix.filter(r=>r.res.s==='blocked'||r.res.s==='err').length;
+  if(listedCount){ log(`${listedCount} LISTING(S) detected — reputation compromised`,'fail');
+    R(0,'RBL',`${listedCount} blacklist listing(s) detected. Identify the cause (compromised host, open relay, spam run), stop the bleeding, then request delisting via each zone's removal portal.`); }
+  else if(blockedCount) log(`no listings detected — ${blockedCount} zone check(s) inconclusive (resolver blocked)`,'warn');
+  else log('all zone checks returned clean','ok');
+  if(domMatrix.some(r=>r.res.s==='listed'))
+    R(0,'SPAM',`The domain itself appears on spam-domain lists (SURBL/DBL/URIBL) — typically means spamvertised URLs or malicious redirects reference this host.`);
+  setPhase('rbl','done'); await sleep(120);
+
+  /* ---------- extras: MTA-STS / TLS-RPT / BIMI ---------- */
+  const [qSTS,qTLS,qBIMI] = await Promise.all([
+    dnsQuery('_mta-sts.'+domain,'TXT'),
+    dnsQuery('_smtp._tls.'+domain,'TXT'),
+    dnsQuery('default._bimi.'+domain,'TXT')
+  ]);
+  const sts  = getTXT(qSTS).find(t=>/v=STSv1/i.test(t))||null;
+  const tlsr = getTXT(qTLS).find(t=>/v=TLSRPTv1/i.test(t))||null;
+  const bimi = getTXT(qBIMI).find(t=>/v=BIMI1/i.test(t))||null;
+  if(!sts)  R(3,'TLS','No MTA-STS policy — opportunistic TLS downgrade attacks remain possible inbound. Consider <span class="mono">_mta-sts TXT + policy host</span>.');
+  if(!tlsr) R(3,'TLS','No TLS-RPT record — you receive no visibility into inbound TLS delivery failures.');
+
+  /* ---------- 07 REPORT ---------- */
+  setPhase('report','active');
+
+  /* scoring */
+  let sSPF=0,sDKIM=0,sDM=0,sMX=0,sRBL=0;
+  if(spfRec){ sSPF = spfAll==='-all'?25 : spfAll==='~all'?15 : spfAll==='?all'?5 : 0; if(spfTree&&spfTree.lookups>10) sSPF=Math.min(sSPF,8); }
+  sDKIM = dkimHits.length ? (bestBits>=2048?20 : bestBits>=1024?10 : 2) : 0;
+  sDM = dm ? ((dm.p||'').toLowerCase()==='reject'?30 : (dm.p||'').toLowerCase()==='quarantine'?22 : 8) : 0;
+  if(mx.length){ const ok = mx.filter(m=>mxInfo[m.host].ips.length).length; sMX = ok===mx.length?15 : Math.round(15*ok/mx.length); }
+  else sMX = apexA.length?5:0;
+  sRBL = listedCount?0 : (blockedCount&&!probeIPs.length?6:10);
+  const score = sSPF+sDKIM+sDM+sMX+sRBL;
+  const verdict = score>=90?['HARDENED','var(--teal)'] : score>=70?['STRONG','var(--cyan)']
+               : score>=50?['MODERATE','var(--amber)'] : score>=30?['WEAK','var(--amber)'] : ['CRITICAL','var(--red)'];
+
+  /* dedupe vault for report */
+  const invSet = new Set();
+  const inventory = VAULT.filter(r=>{
+    const k = r.qname+'|'+r.rtype+'|'+r.data;
+    if(invSet.has(k)) return false;
+    invSet.add(k); return true;
+  });
+  log(`[07] record vault captured ${VAULT.length} answer(s) — ${inventory.length} unique`,'dns');
+
+  Object.assign(REPORT,{
+    finished:new Date().toISOString(), ms:Math.round(performance.now()-tStart),
+    score, verdict:verdict[0],
+    breakdown:{spf:sSPF,dkim:sDKIM,dmarc:sDM,mx:sMX,rbl:sRBL},
+    mx:mx.map(m=>({prio:m.prio,host:m.host,...mxInfo[m.host]})),
+    spf:{record:spfRec, lookups:spfTree?.lookups, all:spfAll},
+    dkim:dkimHits.map(k=>({selector:k.selector, algo:k.algo, bits:k.bits, revoked:k.revoked, record:k.raw})),
+    dmarc:{record:dmRec, parsed:dm},
+    blacklists:{ip:ipMatrix.map(r=>({zone:r.list.zone,name:r.list.name,cells:r.cells.map(c=>({ip:c.ip,status:c.res.s,code:c.res.code}))})),
+                domain:domMatrix.map(r=>({zone:r.list.zone,name:r.list.name,status:r.res.s,code:r.res.code}))},
+    zone:{a:apexA, aaaa:apexAAAA, ns, soa, cname:apexCNAME, wwwCname:wwwCNAME},
+    protocols:{mtasts:sts, tlsrpt:tlsr, bimi},
+    recommendations:recs.map(r=>({sev:r.sev,tag:r.tag,text:r.html.replace(/<[^>]+>/g,'')})),
+    inventory:inventory.map(r=>({type:r.rtype, name:r.qname, value:r.data, ttl:r.ttl, source:r.cat}))
+  });
+
+  /* ---- render ---- */
+  renderScore(score, verdict, {sSPF,sDKIM,sDM,sMX,sRBL}, recs.length);
+  renderMX(mx, mxInfo);
+  renderSPF(spfRec, spfTree, spfAll, spfIps);
+  renderDKIM(dkimHits, selList.length, selector);
+  renderDMARC(dm, dmRec);
+  renderRep(domMatrix);
+  renderRBL(ipMatrix, probeIPs, listedCount, blockedCount);
+  renderDNS({apexA,apexAAAA,ns,soa,apexCNAME,wwwCNAME,sts,tlsr,bimi});
+  renderRecs(recs);
+  renderInventory(inventory);
+
+  $('#rMeta').textContent = `${Math.round(performance.now()-tStart)} ms · resolver ${resolverName} · ${new Date().toISOString().slice(0,16).replace('T',' ')} UTC`;
+  const res = $('#results');
+  res.classList.remove('hide');
+  $$('.rgrid .card').forEach((c,i)=>{ c.classList.remove('show'); c.style.transitionDelay = (i*70)+'ms'; });
+  requestAnimationFrame(()=>requestAnimationFrame(()=>$$('.rgrid .card').forEach(c=>c.classList.add('show'))));
+  setTimeout(()=>$('#results').scrollIntoView({behavior:'smooth', block:'start'}), 150);
+
+  setPhase('report','done');
+  log(`──── SCAN COMPLETE — POSTURE ${score}/100 (${verdict[0]}) · ${recs.length} DIRECTIVE(S) · ${inventory.length} RECORDS CAPTURED ────`, score>=70?'ok':score>=40?'warn':'fail');
+
+  }catch(err){
+    log('scan aborted: ' + esc(err.message||err),'fail');
+    console.error(err);
+  }finally{
+    scanBusy = false;
+    btn.disabled=false; btn.classList.remove('busy'); $('#btnRunTxt').textContent='RUN SCAN';
+    document.body.classList.remove('scanning');
+  }
+}
+
+/* ---------------- SPF tree walk ---------------- */
+async function spfWalk(domain, depth, seen, totals){
+  const node = {domain, depth, children:[], lookups:0, status:'OK', all:null};
+  const res = await dnsQuery(domain,'TXT');
+  const rec = getTXT(res).find(t=>/^v=spf1(\s|$)/i.test(t));
+  if(!rec){ node.status = res.Status===3 ? 'NXDOMAIN' : 'NO SPF'; return node; }
+  const terms = rec.trim().split(/\s+/).slice(1);
+  const jobs = [];
+  for(const raw of terms){
+    let m;
+    if(m = raw.match(/^[+~?-]?include:(.+)$/i)){
+      node.lookups++;
+      const child = m[1].replace(/\.$/,'');
+      if(depth<4 && !seen.has(child.toLowerCase()) && totals.nodes<25){
+        seen.add(child.toLowerCase()); totals.nodes++;
+        jobs.push(child);
+      } else node.children.push({domain:child, depth:depth+1, status:'TRUNC', lookups:0, children:[]});
+    } else if(m = raw.match(/^redirect=(.+)$/i)){
+      node.lookups++;
+      const child = m[1].replace(/\.$/,'');
+      if(depth<4 && !seen.has(child.toLowerCase()) && totals.nodes<25){
+        seen.add(child.toLowerCase()); totals.nodes++;
+        jobs.push(child);
+      }
+    } else if(/^[+~?-]?(a|mx|ptr)([:\/]|$)/i.test(raw) || /^exists:/i.test(raw)){
+      node.lookups++;
+    } else if(/^[+~?-]?all$/i){
+      node.all = raw;
+    }
+  }
+  const subs = await Promise.all(jobs.map(c=>spfWalk(c, depth+1, seen, totals)));
+  subs.forEach(s=>{ node.children.push(s); node.lookups += s.lookups; });
+  return node;
+}
+function collectAll(node){
+  if(node.all) return node.all;
+  for(const c of node.children){ const a = collectAll(c); if(a) return a; }
+  return null;
+}
+function spfNodeHTML(n){
+  const badge = n.status!=='OK' ? ` <span class="chip warn">${esc(n.status)}</span>` : '';
+  return `<div class="spfn" style="padding-left:${n.depth*20}px">${n.depth?'<span class="tp">└─ </span>':''}<span>${esc(n.domain)}</span><span class="dim"> · ${n.lookups} lookup${n.lookups===1?'':'s'}</span>${badge}${n.children.map(spfNodeHTML).join('')}</div>`;
+}
+
+/* ---------------- renderers ---------------- */
+const chip = (cls,txt)=>`<span class="chip ${cls}">${txt}</span>`;
+const setStatus = (id,cls,txt)=>{ const el=$(id); if(el) el.innerHTML = chip(cls,txt); };
+
+function renderScore(score, verdict, b, recCount){
+  const rows = [
+    ['SPF',    b.sSPF, 25], ['DKIM', b.sDKIM, 20], ['DMARC', b.sDM, 30],
+    ['MX/DNS', b.sMX, 15], ['RBL',  b.sRBL, 10]
+  ];
+  $('#cb-score').innerHTML = `
+    <div class="gaugewrap">
+      <svg class="gauge" viewBox="0 0 180 180"><circle class="g-bg" cx="90" cy="90" r="76"/><circle class="g-val" id="gVal" cx="90" cy="90" r="76"/></svg>
+      <div class="g-center"><div class="g-num" id="gNum">0</div><div class="g-lab">POSTURE / 100</div></div>
+    </div>
+    <div class="verdict">${chip(score>=70?'ok':score>=40?'warn':'fail','VERDICT: '+verdict[0])} &nbsp;${chip('mut',recCount+' DIRECTIVES')}</div>
+    ${rows.map(([l,v,m])=>`<div class="bd"><span class="l">${l}</span><span class="t"><i data-w="${Math.round(100*v/m)}" style="background:${v/m>=.8?'var(--teal)':v/m>=.4?'var(--amber)':'var(--red)'}"></i></span><span class="v">${v}/${m}</span></div>`).join('')}`;
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    const gv = $('#gVal');
+    gv.style.stroke = verdict[1];
+    gv.style.strokeDashoffset = 477.5 * (1 - score/100);
+    let n=0; const t=setInterval(()=>{ n+=Math.ceil(score/36); if(n>=score){n=score;clearInterval(t);} $('#gNum').textContent=n; },28);
+    $$('#cb-score .bd i').forEach(i=>i.style.width=i.dataset.w+'%');
+  }));
+  setStatus('#st-score', score>=70?'ok':score>=40?'warn':'fail', score+'/100');
+}
+
+function renderMX(mx, info){
+  if(!mx.length){
+    $('#cb-mx').innerHTML = `<div class="note fail">No MX records published for this domain.</div>`;
+    setStatus('#st-mx','fail','NO MX'); return;
+  }
+  const rows = mx.map(m=>{
+    const i = info[m.host]||{ips:[],ptr:null,cname:false};
+    return `<tr>
+      <td class="num">${esc(m.prio)}</td>
+      <td class="host">${esc(m.host)} ${i.cname?chip('fail','CNAME ✕ RFC2181'):''}</td>
+      <td>${i.ips.length?i.ips.map(x=>`<span class="ip">${esc(x)}</span>`).join(''):chip('warn','NO A/AAAA')}</td>
+      <td>${i.ptr?esc(i.ptr):(i.ips.length?chip('warn','NO PTR'):'<span class="dim">—</span>')}</td></tr>`;
+  }).join('');
+  const bad = mx.filter(m=>info[m.host].cname || !info[m.host].ips.length).length;
+  $('#cb-mx').innerHTML = `<table class="tbl"><thead><tr><th>PRI</th><th>MAIL HOST</th><th>RESOLVED IP</th><th>rDNS (PTR)</th></tr></thead><tbody>${rows}</tbody></table>`;
+  setStatus('#st-mx', bad?'warn':'ok', mx.length+' HOST'+(mx.length>1?'S':'')+(bad?' · '+bad+' ISSUE':' · CLEAN'));
+}
+
+function renderSPF(rec, tree, all, ips){
+  if(!rec){
+    $('#cb-spf').innerHTML = `<div class="note fail">No SPF record found — the domain publishes no sender authorisation. Anyone can forge mail claiming to be from this domain.</div>`;
+    setStatus('#st-spf','fail','MISSING'); return;
+  }
+  const allChip = all==='-all'?chip('ok','HARDFAIL −all'):all==='~all'?chip('warn','SOFTFAIL ~all')
+                :all==='+all'?chip('fail','OPEN +all'):all==='?all'?chip('fail','NEUTRAL ?all'):chip('fail','NO TERMINATOR');
+  const lk = tree?tree.lookups:0;
+  const lkpct = Math.min(100, lk/10*100);
+  $('#cb-spf').innerHTML = `
+    <div class="rawbox"><code>${esc(rec)}</code><button class="copybtn" data-copy="${esc(rec)}">COPY</button></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      ${allChip} ${chip('info', ips+' DIRECT IP RULES')} ${chip(lk>10?'fail':lk>7?'warn':'ok', lk+'/10 DNS LOOKUPS')}
+    </div>
+    ${lk>10?`<div class="note warn">Lookup budget exceeded — per RFC 7208 §4.6.4, evaluation beyond 10 DNS queries may be abandoned by receivers.</div>`:''}
+    <div class="mono" style="font-size:10px;letter-spacing:.18em;color:var(--faint)">INCLUDE TREE — RECURSIVE RESOLUTION</div>
+    <div class="lookbar"><i style="width:${lkpct}%;background:${lk>10?'var(--red)':lk>7?'var(--amber)':'var(--teal)'}"></i></div>
+    <div class="spf-tree">${tree?spfNodeHTML(tree):''}</div>`;
+  setStatus('#st-spf', all==='-all'&&lk<=10?'ok':all==='-all'?'warn':'fail', all?all.toUpperCase():'PARTIAL');
+}
+
+function renderDKIM(hits, probed, userSel){
+  if(!hits.length){
+    $('#cb-dkim').innerHTML = `<div class="note fail">No DKIM keys found ${userSel?`at selector <span class="mono">${esc(userSel)}</span>`:`after probing ${probed} common selectors`}. Outbound mail cannot be cryptographically authenticated.</div>`;
+    setStatus('#st-dkim','fail','NO KEYS'); return;
+  }
+  $('#cb-dkim').innerHTML = hits.map(k=>`
+    <div style="margin-bottom:14px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
+        <span class="mono" style="color:var(--violet);font-size:12px">${esc(k.selector)}._domainkey</span>
+        ${k.revoked?chip('fail','REVOKED — EMPTY p='):chip(k.bits>=2048?'ok':'warn', `${k.algo.toUpperCase()} · ~${k.bits}-BIT`)}
+      </div>
+      <div class="rawbox"><code>${esc(k.raw.length>160?k.raw.slice(0,160)+'…':k.raw)}</code><button class="copybtn" data-copy="${esc(k.raw)}">COPY</button></div>
+    </div>`).join('');
+  const best = Math.max(...hits.map(k=>k.bits));
+  setStatus('#st-dkim', hits.some(k=>k.revoked)?'warn':best>=2048?'ok':'warn', hits.length+' KEY'+(hits.length>1?'S':'')+' FOUND');
+}
+
+function renderDMARC(dm, rec){
+  if(!rec){
+    $('#cb-dmarc').innerHTML = `<div class="note fail">No DMARC record at <span class="mono">_dmarc</span>. Forged mail from this domain faces no receiver-side policy enforcement whatsoever.</div>`;
+    setStatus('#st-dmarc','fail','MISSING'); return;
+  }
+  const p = (dm.p||'none').toLowerCase();
+  const idx = {none:1, quarantine:2, reject:3}[p] ?? 0;
+  const labels = ['MISSING','NONE','QUARANTINE','REJECT'];
+  $('#cb-dmarc').innerHTML = `
+    <div class="rawbox"><code>${esc(rec)}</code><button class="copybtn" data-copy="${esc(rec)}">COPY</button></div>
+    <div class="polmeter">${labels.map((l,i)=>`<div class="${i===idx?'on p'+i:''}">${l}</div>`).join('')}</div>
+    <div class="kv">
+      <span class="k">POLICY p=</span><span class="v">${esc(dm.p||'— (defaults to none)')}</span>
+      <span class="k">SUBDOMAIN sp=</span><span class="v">${esc(dm.sp||'—')}</span>
+      <span class="k">COVERAGE pct=</span><span class="v">${esc(dm.pct||'100')}</span>
+      <span class="k">AGG REG rua=</span><span class="v">${dm.rua?esc(dm.rua):chip('warn','NONE')}</span>
+      <span class="k">FORENSIC ruf=</span><span class="v">${esc(dm.ruf||'—')}</span>
+      <span class="k">ALIGNMENT</span><span class="v">adkim=${esc(dm.adkim||'r')} · aspf=${esc(dm.aspf||'r')}</span>
+    </div>`;
+  setStatus('#st-dmarc', p==='reject'?'ok':p==='quarantine'?'ok':p==='none'?'warn':'fail','p='+p.toUpperCase());
+}
+
+function renderRep(domMatrix){
+  const anyListed = domMatrix.some(r=>r.res.s==='listed');
+  $('#cb-rep').innerHTML = `
+    <div class="note ${anyListed?'fail':'info'}" style="margin-bottom:12px">Domain-level abuse lists flag hosts referenced in spam runs, phishing URLs and malware campaigns — independent of your own mail content.</div>
+    <table class="tbl"><thead><tr><th>LIST</th><th>ZONE</th><th>STATUS</th></tr></thead><tbody>
+    ${domMatrix.map(r=>`<tr><td><a href="${r.list.url}" target="_blank" rel="noopener" style="text-decoration:none">${esc(r.list.name)}</a></td>
+      <td class="dim">${esc(r.list.zone)}</td>
+      <td>${r.res.s==='listed'?chip('fail','LISTED '+(r.res.code||'')):r.res.s==='clean'?chip('ok','CLEAN')
+        :r.res.s==='blocked'?chip('mut','RESOLVER BLOCKED'):chip('mut','UNVERIFIABLE')}</td></tr>`).join('')}
+    </tbody></table>`;
+  setStatus('#st-rep', anyListed?'fail':'ok', anyListed?'LISTED':'CLEAN');
+}
+
+function renderRBL(matrix, ips, listed, blocked){
+  if(!ips.length){
+    $('#cb-rbl').innerHTML = `<div class="note warn">No resolvable MX IPs to test against IP-based blacklists.</div>`;
+    setStatus('#st-rbl','warn','NO TARGETS'); return;
+  }
+  const head = ips.map(ip=>`<th>${esc(ip)}</th>`).join('');
+  const zen = c => { if(!c) return '';
+    if(/^127\.0\.0\.[23]$/.test(c)) return 'SBL'; if(/^127\.0\.0\.[4-7]$/.test(c)) return 'XBL';
+    if(/^127\.0\.0\.1[01]$/.test(c)) return 'PBL'; return c; };
+  $('#cb-rbl').innerHTML = `
+    <div style="overflow-x:auto"><table class="tbl">
+      <thead><tr><th style="min-width:150px">BLACKLIST ZONE</th>${head}</tr></thead><tbody>
+      ${matrix.map(r=>`<tr>
+        <td><a href="${r.list.url}" target="_blank" rel="noopener" style="text-decoration:none">${esc(r.list.name)}</a><br><span class="dim" style="font-size:10px">${esc(r.list.zone)}</span></td>
+        ${r.cells.map(c=>{
+          const s=c.res.s;
+          if(s==='listed')  return `<td>${chip('fail','LISTED')}<br><span class="dim" style="font-size:10px">${zen(c.res.code)}</span></td>`;
+          if(s==='clean')   return `<td>${chip('ok','CLEAN')}</td>`;
+          if(s==='blocked') return `<td>${chip('mut','BLOCKED')}</td>`;
+          return `<td>${chip('mut','ERR')}</td>`;
+        }).join('')}</tr>`).join('')}
+      </tbody></table></div>
+    <div class="dim mono" style="font-size:10.5px;margin-top:12px;line-height:1.8">
+    ▸ <span style="color:var(--red)">LISTED</span> — sending IP appears on the zone; delivery to major providers will degrade or fail.<br>
+    ▸ <span style="color:var(--faint)">BLOCKED/ERR</span> — the zone refused our public DoH resolver (common for Spamhaus); query from your own resolver to confirm.<br>
+    ▸ Zen sub-codes: SBL = listed spam source · XBL = hijacked/infected host · PBL = should not send directly.</div>`;
+  setStatus('#st-rbl', listed?'fail':blocked?'warn':'ok', listed?listed+' LISTED':blocked?blocked+' UNVERIFIED':'ALL CLEAN');
+}
+
+function renderDNS(d){
+  const row = (k,v)=>`<div class="kv" style="margin:0"><span class="k">${k}</span><span class="v">${v}</span></div>`;
+  $('#cb-dns').innerHTML = `
+    <div class="mono" style="font-size:10px;letter-spacing:.18em;color:var(--faint);margin-bottom:8px">ZONE RECORDS</div>
+    ${row('A',     d.apexA.length?d.apexA.map(x=>`<span class="ip">${esc(x)}</span>`).join(''):'<span class="dim">—</span>')}
+    ${row('AAAA',  d.apexAAAA.length?d.apexAAAA.map(x=>`<span class="ip">${esc(x)}</span>`).join(''):'<span class="dim">—</span>')}
+    ${row('NS',    d.ns.length?d.ns.map(esc).join('<br>'):'<span class="dim">—</span>')}
+    ${row('SOA',   d.soa?`<span style="font-size:11px">${esc(d.soa.split(' ').slice(0,2).join(' '))}</span>`:'<span class="dim">—</span>')}
+    ${row('CNAME', d.apexCNAME?esc(d.apexCNAME):'<span class="dim">none (apex)</span>')}
+    ${row('WWW',   d.wwwCNAME?esc(d.wwwCNAME):'<span class="dim">no CNAME</span>')}
+    <div class="mono" style="font-size:10px;letter-spacing:.18em;color:var(--faint);margin:18px 0 8px">TRANSPORT PROTOCOLS</div>
+    ${row('MTA-STS', d.sts?chip('ok','v=STSv1 PUBLISHED'):chip('mut','ABSENT'))}
+    ${row('TLS-RPT', d.tlsr?chip('ok','REPORTING ACTIVE'):chip('mut','ABSENT'))}
+    ${row('BIMI',    d.bimi?chip('ok','v=BIMI1'):chip('mut','ABSENT'))}`;
+  const extras = [d.sts,d.tlsr,d.bimi].filter(Boolean).length;
+  setStatus('#st-dns', extras===3?'ok':'info', extras+'/3 PROTOCOLS');
+}
+
+function renderRecs(recs){
+  recs.sort((a,b)=>a.sev-b.sev);
+  const tags = ['CRITICAL','HIGH','MEDIUM','ENHANCE'];
+  $('#cb-rec').innerHTML = recs.length
+    ? recs.map(r=>`<div class="rec r${r.sev}"><span class="tag">${tags[r.sev]} · ${esc(r.tag)}</span><div>${r.html}</div></div>`).join('')
+    : `<div class="note ok"><b>Fully hardened.</b> No remediation directives generated — SPF hardfail, strong DKIM, enforcing DMARC and clean reputation are all in place. Maintain monitoring and rotate keys on schedule.</div>`;
+  setStatus('#st-rec', recs.some(r=>r.sev===0)?'fail':recs.length?'warn':'ok', recs.length+' OPEN');
+}
+
+/* ---------- M-10 · full record inventory ---------- */
+const INV_ORDER = {MX:0, A:1, AAAA:2, CNAME:3, TXT:4, NS:5, PTR:6, SOA:7};
+let invState = {type:'ALL', q:''};
+
+function renderInventory(recs){
+  const box = $('#cb-inv');
+  if(!recs.length){
+    box.innerHTML = `<div class="note warn">No records captured during this run.</div>`;
+    setStatus('#st-inv','warn','0 RECORDS'); return;
+  }
+  const sorted = [...recs].sort((a,b)=>
+    (INV_ORDER[a.rtype] ?? 9) - (INV_ORDER[b.rtype] ?? 9) || a.qname.localeCompare(b.qname) || String(a.data).localeCompare(String(b.data)));
+  const counts = {};
+  sorted.forEach(r=>counts[r.rtype]=(counts[r.rtype]||0)+1);
+  const types = Object.keys(counts).sort((a,b)=>(INV_ORDER[a]??9)-(INV_ORDER[b]??9));
+  const rblCount = sorted.filter(r=>r.cat==='rbl').length;
+
+  box.innerHTML = `
+    <div class="inv-tools">
+      <button class="fchip on" data-f="ALL">ALL<b>${sorted.length}</b></button>
+      ${types.map(t=>`<button class="fchip" data-f="${t}">${t}<b>${counts[t]}</b></button>`).join('')}
+      <input type="text" id="invSearch" placeholder="filter by name or value…" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="inv-count" id="invCount"></div>
+    <div class="inv-scroll">
+      <table class="tbl" id="invTable">
+        <thead><tr><th style="width:90px">TYPE</th><th style="width:32%">NAME</th><th>VALUE</th><th style="width:64px">TTL</th><th style="width:88px">SOURCE</th></tr></thead>
+        <tbody>
+        ${sorted.map(r=>`<tr data-type="${r.rtype}" data-hay="${esc((r.qname+' '+r.data).toLowerCase())}">
+          <td><span class="tchip t-${r.rtype}">${r.rtype}</span></td>
+          <td class="host">${esc(r.qname)}</td>
+          <td class="inv-val">${esc(r.data)}</td>
+          <td class="dim">${r.ttl ?? '—'}</td>
+          <td>${r.cat==='rbl'?'<span class="src-tag rbl">RBL PROBE</span>':'<span class="src-tag zone">ZONE</span>'}</td>
+        </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div class="dim mono" style="font-size:10.5px;margin-top:12px;line-height:1.8">
+    ▸ Every answer record observed during this scan — apex + <span class="mono">www</span> + all MX hosts (A / AAAA / CNAME / PTR),
+    every TXT (SPF, DKIM, DMARC, verification strings), NS, SOA, and SPF include-chain TXT records.<br>
+    ▸ <span class="src-tag rbl">RBL PROBE</span> rows are synthetic blacklist queries (reversed IP / domain + list zone), included for full transparency —
+    ${rblCount} probe response(s) captured this run.</div>`;
+
+  setStatus('#st-inv','info', sorted.length+' RECORDS');
+  applyInvFilter();
+}
+function applyInvFilter(){
+  const rows = $$('#invTable tbody tr');
+  const {type, q} = invState;
+  let shown = 0;
+  rows.forEach(tr=>{
+    const okT = type==='ALL' || tr.dataset.type===type;
+    const okQ = !q || tr.dataset.hay.includes(q);
+    const vis = okT && okQ;
+    tr.style.display = vis ? '' : 'none';
+    if(vis) shown++;
+  });
+  const c = $('#invCount');
+  if(c) c.textContent = `SHOWING ${shown} OF ${rows.length} CAPTURED RECORDS${type!=='ALL'?' · TYPE '+type:''}${q?` · MATCH "${q.toUpperCase()}"`:''}`;
+}
+document.addEventListener('click', e=>{
+  const f = e.target.closest('.fchip');
+  if(f && $('#cb-inv').contains(f)){
+    $$('#cb-inv .fchip').forEach(x=>x.classList.remove('on'));
+    f.classList.add('on');
+    invState.type = f.dataset.f;
+    applyInvFilter();
+  }
+});
+document.addEventListener('input', e=>{
+  if(e.target && e.target.id==='invSearch'){
+    invState.q = e.target.value.trim().toLowerCase();
+    applyInvFilter();
+  }
+});
+
+/* ---------------- wiring ---------------- */
+$('#btnRun').onclick = startScan;
+$('#btnRescan').onclick = startScan;
+['inDomain','inSelector'].forEach(id=>$('#'+id).addEventListener('keydown', e=>{ if(e.key==='Enter') startScan(); }));
+$$('.schip').forEach(b=>b.onclick=()=>{ $('#inDomain').value=b.dataset.d; startScan(); });
+$('#btnExport').onclick = ()=>{
+  if(!REPORT) return;
+  const blob = new Blob([JSON.stringify(REPORT,null,2)],{type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `mx-recon-${REPORT.target}-${Date.now()}.json`;
+  a.click(); URL.revokeObjectURL(a.href);
+  log('report dossier exported as JSON (includes full inventory)','ok');
+};
+document.addEventListener('click', e=>{
+  const b = e.target.closest('.copybtn');
+  if(!b) return;
+  navigator.clipboard?.writeText(b.dataset.copy).then(()=>{
+    b.textContent='COPIED'; setTimeout(()=>b.textContent='COPY',1200);
+  });
+});
+document.addEventListener('keydown', e=>{
+  if(e.key==='/' && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)){
+    e.preventDefault(); $('#inDomain').focus();
+  }
+});
+</script>
+</body>
+</html>

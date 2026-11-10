@@ -1,0 +1,111 @@
+# MX-RECON — Portainer stack / docker-compose deployment
+# Deploy in Portainer: Stacks → Add stack → Repository → point at this repo.
+# Name the stack "mx-recon" — the stack name is the deployment identity.
+#
+# Required environment (Stack "Environment variables" or an env file):
+#   DJANGO_SECRET_KEY     — 64+ random chars (generate: python -c "import secrets;print(secrets.token_urlsafe(64))")
+#   DJANGO_ALLOWED_HOSTS  — e.g. mx-recon.example.com
+# Optional:
+#   DJANGO_CSRF_TRUSTED_ORIGINS — https://mx-recon.example.com
+#   DJANGO_TRUST_PROXY=true     — when behind Nginx Proxy Manager / Traefik / Caddy
+#   DJANGO_SSL_REDIRECT=true, DJANGO_HSTS_SECONDS=31536000 — once HTTPS works
+#
+# Everything below is passed through to the container, so it can be set straight
+# in the stack's Environment variables. Leave any of them unset to keep the
+# default shown (see README → Configuration):
+#   Resolvers : DJANGO_RESOLVER_DEFAULT (system), DJANGO_RESOLVERS_EXTRA (empty),
+#               DJANGO_DNS_FALLBACK (1.1.1.1,8.8.8.8)
+#   Blacklists: DJANGO_RBL_DISABLED (empty), DJANGO_RBL_EXTRA_IP (empty),
+#               DJANGO_RBL_EXTRA_DOMAIN (empty)   ← also how you add Spamhaus DQS zones
+#   Domain    : DJANGO_WHOIS (true), DJANGO_WHOIS_TIMEOUT (6)
+#   Budget    : DJANGO_MAX_QUERIES (350), DJANGO_DEADLINE (30)
+#   Build mark: DJANGO_VERSION (3.11.0) — shown in the topbar as "BUILD vX.Y.Z"
+#   Port      : MX_RECON_PORT — published HOST port (default 583). Consumed by
+#               compose, never passed into the container (which listens on 8000).
+
+services:
+  mx-recon:
+    build: .
+    image: ghcr.io/jasonwwilson1979/mx-recon:latest
+    restart: unless-stopped
+    # MX_RECON_PORT = the port you browse to on the Docker host (published port).
+    # The container itself always listens on 8000 internally (gunicorn + healthcheck).
+    # Set it in .env (local compose) or the Portainer stack Environment variables —
+    # e.g. MX_RECON_PORT=590 → http://<host>:590. Default when unset: 583.
+    #
+    # Cloudflare compatibility:
+    #   ✅ Cloudflare Tunnel (cloudflared) — any origin port, incl. 583
+    #   ✅ DNS-only / grey-cloud record + router port-forward
+    #   ❌ Proxied (orange cloud) — Cloudflare only proxies:
+    #        HTTP  80, 8080, 8880, 2052, 2082, 2086, 2095
+    #        HTTPS 443, 8443, 2053, 2083, 2087, 2096
+    #      For orange-cloud, publish one of those instead (set MX_RECON_PORT=443 or 8443 …)
+    #      or put Nginx Proxy Manager / Traefik in front and point it at mx-recon:8000.
+    ports:
+      - "${MX_RECON_PORT:-583}:8000"
+    environment:
+      DJANGO_DEBUG: "false"
+      # NOTE: MX_RECON_PORT is deliberately NOT passed into the container — it
+      # selects the published host port (see ports above). Inside the container
+      # the app always listens on 8000.
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?set DJANGO_SECRET_KEY in the stack env}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-}
+      DJANGO_TRUST_PROXY: ${DJANGO_TRUST_PROXY:-false}
+      DJANGO_SSL_REDIRECT: ${DJANGO_SSL_REDIRECT:-false}
+      DJANGO_HSTS_SECONDS: ${DJANGO_HSTS_SECONDS:-0}
+      DJANGO_RATE_LIMIT: ${DJANGO_RATE_LIMIT:-30}
+      DJANGO_RATE_WINDOW: ${DJANGO_RATE_WINDOW:-300}
+      DJANGO_MAX_QUERIES: ${DJANGO_MAX_QUERIES:-350}
+      DJANGO_DEADLINE: ${DJANGO_DEADLINE:-30}
+      # Resolvers — DJANGO_RESOLVERS_EXTRA is how you point MX-RECON at your own
+      # recursive resolver, which is what makes Spamhaus answer (see README).
+      DJANGO_RESOLVER_DEFAULT: ${DJANGO_RESOLVER_DEFAULT:-system}
+      DJANGO_RESOLVERS_EXTRA: ${DJANGO_RESOLVERS_EXTRA:-}
+      DJANGO_DNS_FALLBACK: ${DJANGO_DNS_FALLBACK:-1.1.1.1,8.8.8.8}
+      # Blacklists — extra zones (incl. Spamhaus DQS), and zones to skip.
+      DJANGO_RBL_DISABLED: ${DJANGO_RBL_DISABLED:-}
+      DJANGO_RBL_EXTRA_IP: ${DJANGO_RBL_EXTRA_IP:-}
+      DJANGO_RBL_EXTRA_DOMAIN: ${DJANGO_RBL_EXTRA_DOMAIN:-}
+      # Domain-control module (RDAP/WHOIS over HTTPS)
+      DJANGO_WHOIS: ${DJANGO_WHOIS:-true}
+      DJANGO_WHOIS_TIMEOUT: ${DJANGO_WHOIS_TIMEOUT:-6}
+      # Build marker shown in the topbar / boot log
+      DJANGO_VERSION: ${DJANGO_VERSION:-3.11.0}
+    volumes:
+      - mx-recon_cache:/app/var/cache
+    # Uncomment to pin DNS instead of using Docker's embedded resolver (127.0.0.11),
+    # which just forwards to the host. Spamhaus answers resolvers it can attribute,
+    # so point this at your own router / Pi-hole / Unbound if RBL rows show BLOCKED —
+    # then re-run the T-01 RBL self-test in the UI (see README).
+    # dns:
+    #   - 192.168.1.1
+    security_opt:
+      - no-new-privileges:true
+    # Healthcheck is inherited from the image (fixed on the internal port 8000).
+
+volumes:
+  mx-recon_cache:
+
+# ---------------------------------------------------------------------------
+# OPTIONAL — Cloudflare Tunnel (works with ANY origin port, including 583).
+# Create the tunnel in Cloudflare Zero Trust → Networks → Tunnels, then paste
+# its token into the stack environment as CLOUDFLARE_TUNNEL_TOKEN and
+# uncomment this service.
+#
+#   cloudflared:
+#     image: cloudflare/cloudflared:latest
+#     restart: unless-stopped
+#     command: tunnel --no-autoupdate run
+#     environment:
+#       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN}
+#     depends_on:
+#       - mx-recon
+#
+# In the tunnel's public-hostname config use the service:
+#   • http://mx-recon:8000  ← when cloudflared runs in THIS stack (container port)
+#   • http://<host>:583  ← when cloudflared runs on the Docker host (published port = MX_RECON_PORT, default 583)
+# Then set for mx-recon: DJANGO_TRUST_PROXY=true,
+# DJANGO_ALLOWED_HOSTS=mx-recon.example.com,
+# DJANGO_CSRF_TRUSTED_ORIGINS=https://mx-recon.example.com
+# ---------------------------------------------------------------------------

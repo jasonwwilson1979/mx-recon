@@ -1,0 +1,744 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MX-RECON — Email Security &amp; DNS Forensics Console</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='13' fill='none' stroke='%23ffb02e' stroke-width='2'/><circle cx='16' cy='16' r='5' fill='none' stroke='%2339c2ff' stroke-width='2'/><path d='M16 3v6M16 23v6M3 16h6M23 16h6' stroke='%23ffb02e' stroke-width='2'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#08131c; --bg2:#0a1822; --panel:#0d2030; --panel2:#102739;
+  --line:#1c3a4f; --line2:#2c5876;
+  --ink:#e9f3f5; --dim:#8fb0bf; --faint:#587a8c;
+  --cyan:#39c2ff; --teal:#2fe0a8; --amber:#ffb02e; --red:#ff5c6c; --violet:#a08bff;
+  --mono:'IBM Plex Mono',ui-monospace,monospace;
+  --disp:'Space Grotesk',sans-serif;
+  --body:'IBM Plex Sans',system-ui,sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  background:var(--bg); color:var(--ink); font-family:var(--body);
+  font-size:15px; line-height:1.55; min-height:100vh; overflow-x:hidden;
+}
+::selection{background:var(--amber); color:#131313}
+/* ---------- ambient layers ---------- */
+.bg-grid{position:fixed;inset:0;z-index:-3;pointer-events:none;
+  background-image:linear-gradient(rgba(57,194,255,.045) 1px,transparent 1px),
+                   linear-gradient(90deg,rgba(57,194,255,.045) 1px,transparent 1px);
+  background-size:46px 46px;
+  mask-image:radial-gradient(ellipse 90% 80% at 50% 0%,#000 30%,transparent 100%);
+  animation:gridDrift 90s linear infinite;
+}
+@keyframes gridDrift{to{background-position:46px 92px,92px 46px}}
+.bg-glow{position:fixed;inset:0;z-index:-2;pointer-events:none;
+  background:radial-gradient(600px 400px at 12% -5%,rgba(57,194,255,.13),transparent 70%),
+             radial-gradient(700px 500px at 95% 108%,rgba(255,176,46,.10),transparent 70%),
+             radial-gradient(500px 350px at 70% 20%,rgba(47,224,168,.05),transparent 70%);
+}
+body::after{content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.05;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.6'/%3E%3C/svg%3E");
+}
+/* The sweep line. Movement is driven from JS (mx-recon.js startSweep) rather than a
+   CSS @keyframes animation: OS/browser "reduce motion" settings, extensions and
+   CSS resets that force animation:none!important all silently killed the
+   animation, which left the line parked at the top of the page. JS sets
+   transform per frame, so nothing can suppress it. */
+.scanline{position:fixed;left:0;right:0;top:0;height:3px;z-index:60;pointer-events:none;opacity:0;
+  transform:translate3d(0,-6px,0);
+  background:linear-gradient(90deg,transparent,var(--cyan),transparent);
+  box-shadow:0 0 22px 3px rgba(57,194,255,.65),0 0 70px 18px rgba(57,194,255,.18);
+  transition:opacity .3s linear;}
+.scanline::after{content:'';position:absolute;left:0;right:0;top:3px;height:70px;pointer-events:none;
+  background:linear-gradient(180deg,rgba(57,194,255,.14),transparent);}
+body.scanning .scanline{opacity:.9}
+.wrap{max-width:1260px;margin:0 auto;padding:0 26px}
+.hide{display:none!important}
+/* ---------- shell + left sidebar nav ---------- */
+.wrap.shell{max-width:1560px;display:grid;grid-template-columns:230px minmax(0,1fr);gap:26px;align-items:start}
+.content{min-width:0}
+.sidenav{position:sticky;top:64px;align-self:start;max-height:calc(100vh - 84px);overflow-y:auto;
+  border:1px solid var(--line);border-radius:12px;padding:14px 12px;display:flex;flex-direction:column;gap:14px;
+  background:linear-gradient(180deg,rgba(13,32,48,.92),rgba(10,24,34,.78));backdrop-filter:blur(4px)}
+.sidenav::-webkit-scrollbar{width:6px}
+.sidenav::-webkit-scrollbar-thumb{background:var(--line2);border-radius:3px}
+.navbrand{font-family:var(--disp);font-size:12px;letter-spacing:.2em;color:var(--dim);display:flex;
+  justify-content:space-between;align-items:baseline;border-bottom:1px dashed var(--line);padding-bottom:10px}
+.navbrand span{font-family:var(--mono);font-size:9px;color:var(--faint);letter-spacing:.16em}
+.navgroup{display:flex;flex-direction:column;gap:2px}
+.navgroup h5{font-family:var(--mono);font-size:9px;letter-spacing:.2em;color:var(--faint);
+  font-weight:500;margin:0 0 4px 8px}
+.navgroup a{display:flex;align-items:baseline;gap:8px;text-decoration:none;color:var(--dim);
+  font-family:var(--mono);font-size:10.5px;letter-spacing:.07em;padding:6px 9px;border-radius:6px;
+  border-left:2px solid transparent;transition:.18s;opacity:.62}
+.navgroup a b{color:var(--ink);font-weight:600;font-size:10.5px;letter-spacing:.08em}
+.navgroup a span{font-size:9px;color:var(--faint);letter-spacing:.03em}
+.navgroup a:hover{background:rgba(57,194,255,.07);color:var(--cyan);opacity:1}
+.navgroup a.live{opacity:1}
+.navgroup a.on{background:rgba(255,176,46,.1);border-left-color:var(--amber);color:var(--amber);opacity:1}
+.navgroup a.on b{color:var(--amber)}
+.card,.diag{scroll-margin-top:72px}
+@media (max-width:1100px){
+  .wrap.shell{display:block;max-width:1260px}
+  .sidenav{position:static;max-height:none;flex-direction:row;overflow-x:auto;gap:10px;margin-bottom:20px;align-items:center}
+  .navbrand{display:none}
+  .navgroup{flex-direction:row;gap:4px}
+  .navgroup h5{display:none}
+  .navgroup a{white-space:nowrap;border-left:none;border-bottom:2px solid transparent}
+  .navgroup a.on{border-left:none;border-bottom-color:var(--amber)}
+}
+/* ---------- diagnostics ---------- */
+.diag{margin-top:48px}
+.diaghead{display:flex;gap:20px;justify-content:space-between;align-items:flex-start;flex-wrap:wrap}
+.diaghead h2{font-family:var(--disp);font-size:25px;letter-spacing:.02em;margin:6px 0 8px}
+.lead.small{font-size:13px;color:var(--dim);max-width:780px;line-height:1.62}
+.diagactions{display:flex;gap:8px;flex-wrap:wrap}
+.gbtn.primary{background:linear-gradient(180deg,var(--amber),#e08f18);color:#1a1204;border-color:transparent;font-weight:600}
+.gbtn.primary:disabled{opacity:.6}
+.diagform{margin-top:16px;border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:14px}
+#diagInput{width:100%;min-height:200px;background:#08131c;color:var(--ink);border:1px solid var(--line);
+  border-radius:8px;padding:12px;font-family:var(--mono);font-size:11.5px;line-height:1.5;resize:vertical}
+#diagInput:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 2px rgba(57,194,255,.12)}
+.diagmeta{display:flex;gap:14px;align-items:center;margin-top:10px;flex-wrap:wrap}
+.diagmeta label{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;color:var(--faint);
+  display:flex;align-items:center;gap:8px}
+.diagmeta input{background:#08131c;border:1px solid var(--line);border-radius:6px;color:var(--ink);
+  font-family:var(--mono);font-size:11px;padding:6px 8px;min-width:220px}
+.diagverdict{margin:22px 0 4px;padding:16px 18px;border-radius:12px;border:1px solid var(--line);
+  background:var(--panel2);display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+.diagverdict .rv{font-family:var(--disp);font-size:32px;line-height:1}
+.diagverdict .rl{font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;color:var(--faint)}
+.diagverdict .rh{font-size:15px;color:var(--ink);flex:1;min-width:280px;line-height:1.5}
+.diagverdict .rm{font-family:var(--mono);font-size:10px;color:var(--faint);line-height:1.7}
+.diaggrid{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;margin-top:16px;align-items:stretch}
+.diaggrid > .card{grid-column:auto;grid-row:auto;display:flex;flex-direction:column}
+.diaggrid > .card > .cb{flex:1}
+.diaggrid > #card-diagauth,.diaggrid > #card-diagdns{grid-column:1/-1}
+.cause{border:1px solid var(--line);border-left:3px solid var(--faint);border-radius:8px;
+  padding:12px 14px;margin-bottom:10px;background:rgba(8,19,28,.5)}
+.cause.s0{border-left-color:var(--red)}
+.cause.s1{border-left-color:var(--amber)}
+.cause.s2{border-left-color:var(--cyan)}
+.cause.s3{border-left-color:var(--violet)}
+.cause h4{font-size:13.5px;margin:0 0 6px;font-weight:600;line-height:1.45}
+.cause ul{margin:6px 0 8px 16px;font-size:12.5px;color:var(--dim);line-height:1.65}
+.cause ul li{margin-bottom:3px}
+.cause .fix{font-size:12.5px;color:var(--teal);border-top:1px dashed var(--line);padding-top:8px;margin-top:4px}
+.passlist{list-style:none;font-size:12.5px;color:var(--dim);line-height:1.9}
+.passlist li::before{content:'✓ ';color:var(--teal)}
+.hop{border:1px solid var(--line);border-radius:8px;padding:9px 11px;margin-bottom:8px;background:rgba(8,19,28,.45)}
+.hop .hh{font-family:var(--mono);font-size:10px;color:var(--faint);letter-spacing:.14em;margin-bottom:4px}
+.hop .hb{font-size:12px;color:var(--dim);line-height:1.6}
+/* (per-card span overrides removed — the grids are uniform now) */
+/* ---------- resolver selector + info popovers ---------- */
+.field select{background:#08131c;color:var(--ink);border:1px solid var(--line);border-radius:6px;
+  font-family:var(--mono);font-size:11.5px;padding:9px 10px;min-width:190px;cursor:pointer}
+.field select:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 2px rgba(57,194,255,.12)}
+.infobtn{width:20px;height:20px;flex:none;border-radius:50%;border:1px solid var(--line2);background:transparent;
+  color:var(--faint);font-family:var(--mono);font-size:11px;line-height:1;cursor:pointer;transition:.18s;
+  display:inline-flex;align-items:center;justify-content:center;padding:0}
+.infobtn:hover{color:var(--amber);border-color:var(--amber);background:rgba(255,176,46,.1)}
+.infopop{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;padding:24px}
+.infopop-backdrop{position:absolute;inset:0;background:rgba(4,10,15,.72);backdrop-filter:blur(3px)}
+.infopop-panel{position:relative;width:min(640px,100%);max-height:84vh;overflow-y:auto;border:1px solid var(--line2);
+  border-radius:14px;background:linear-gradient(180deg,var(--panel2),var(--panel));padding:20px 22px;
+  box-shadow:0 24px 60px rgba(0,0,0,.55)}
+.infopop-panel header{display:flex;gap:12px;align-items:flex-start;margin-bottom:12px}
+.info-emoji{font-size:26px;line-height:1}
+.infopop-panel h3{font-family:var(--disp);font-size:19px;letter-spacing:.04em}
+.info-full{font-family:var(--mono);font-size:11px;color:var(--cyan);letter-spacing:.06em;margin-top:2px}
+.infoclose{margin-left:auto;background:transparent;border:1px solid var(--line);color:var(--dim);border-radius:6px;
+  width:26px;height:26px;cursor:pointer;font-size:12px}
+.infoclose:hover{color:var(--red);border-color:var(--red)}
+.info-q{font-size:14.5px;color:var(--amber);border-left:3px solid var(--amber);padding:6px 0 6px 12px;
+  margin-bottom:12px;line-height:1.5}
+.info-body{font-size:13px;color:var(--dim);line-height:1.7}
+.info-body b{color:var(--ink)}
+.info-example{margin-top:14px;border:1px dashed var(--line);border-radius:8px;padding:10px 12px;background:rgba(8,19,28,.5)}
+.info-example .lbl{font-family:var(--mono);font-size:9px;letter-spacing:.18em;color:var(--faint);
+  display:block;margin-bottom:6px}
+.info-example code{font-family:var(--mono);font-size:11.5px;color:var(--teal);word-break:break-all;
+  display:block;white-space:pre-line}
+.info-related{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px dashed var(--line)}
+.info-related .gbtn{font-size:10px;padding:5px 9px}
+#copyPopText{width:100%;min-height:280px;margin-top:4px;background:#08131c;color:var(--ink);
+  border:1px solid var(--line);border-radius:8px;padding:12px;font-family:var(--mono);font-size:11.5px;
+  line-height:1.55;resize:vertical;white-space:pre}
+.info-note{margin-top:10px;font-size:12px;color:var(--faint);line-height:1.6}
+.mono{font-family:var(--mono)}
+.dim{color:var(--faint)}
+a{color:var(--cyan)}
+/* ---------- topbar ---------- */
+.topbar{position:sticky;top:0;z-index:50;border-bottom:1px solid var(--line);
+  background:rgba(8,19,28,.92);backdrop-filter:blur(6px)}
+.topbar .wrap{display:flex;align-items:center;gap:22px;height:52px;font-family:var(--mono);font-size:11px;letter-spacing:.06em}
+.brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:13px;letter-spacing:.14em}
+.brand svg{display:block}
+.brand .v{color:var(--amber);font-size:10px;border:1px solid rgba(255,176,46,.4);padding:1px 6px;border-radius:2px}
+.tspace{flex:1}
+.tstat{display:flex;align-items:center;gap:7px;color:var(--dim);white-space:nowrap}
+.tstat b{color:var(--ink);font-weight:500}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex:none}
+.dot.ok{background:var(--teal);box-shadow:0 0 8px var(--teal)}
+.dot.warn{background:var(--amber);box-shadow:0 0 8px var(--amber)}
+.dot.bad{background:var(--red);box-shadow:0 0 8px var(--red)}
+.dot.pulse{animation:pulse 1.1s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.35}}
+@media(max-width:820px){.tstat.hidesm{display:none}}
+/* ---------- deck ---------- */
+.deck{display:grid;grid-template-columns:1.15fr .85fr;gap:38px;padding:58px 0 34px;align-items:start}
+.kicker{font-family:var(--mono);font-size:11px;letter-spacing:.28em;color:var(--cyan);margin-bottom:16px;display:flex;align-items:center;gap:10px}
+.kicker::before{content:'';width:26px;height:1px;background:var(--cyan)}
+h1{font-family:var(--disp);font-weight:700;font-size:clamp(2.6rem,5.6vw,4.4rem);line-height:.98;letter-spacing:-.02em}
+h1 .alt{color:transparent;-webkit-text-stroke:1.5px var(--amber)}
+.deck p.lead{color:var(--dim);max-width:56ch;margin:20px 0 24px;font-size:15.5px}
+.mods{display:flex;flex-wrap:wrap;gap:8px}
+.mod{font-family:var(--mono);font-size:10px;letter-spacing:.14em;padding:5px 10px;border:1px solid var(--line2);color:var(--dim);border-radius:2px;transition:.2s;cursor:default}
+.mod:hover{border-color:var(--amber);color:var(--amber);transform:translateY(-2px)}
+/* spec panel */
+.spec{position:relative;border:1px solid var(--line);background:linear-gradient(160deg,var(--panel),var(--bg2));padding:22px 24px;font-family:var(--mono);font-size:12px}
+.spec::before,.spec::after{content:'';position:absolute;width:14px;height:14px;border:2px solid var(--amber)}
+.spec::before{top:-2px;left:-2px;border-right:0;border-bottom:0}
+.spec::after{bottom:-2px;right:-2px;border-left:0;border-top:0}
+.spec h4{font-size:10px;letter-spacing:.24em;color:var(--amber);margin-bottom:14px;font-weight:600}
+.spec-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px dashed rgba(44,88,118,.4)}
+.spec-row:last-child{border-bottom:0}
+.spec-row .k{color:var(--faint)}
+.spec-row .v{color:var(--ink)}
+.spec-row .v.c{color:var(--cyan)} .spec-row .v.g{color:var(--teal)} .spec-row .v.a{color:var(--amber)}
+/* ---------- console ---------- */
+.console{position:relative;border:1px solid var(--line2);background:linear-gradient(180deg,var(--panel),#0b1c2b);padding:26px 28px 22px;margin-bottom:16px}
+.console::before,.console::after{content:'';position:absolute;width:16px;height:16px;border:2px solid var(--cyan)}
+.console::before{top:-2px;left:-2px;border-right:0;border-bottom:0}
+.console::after{bottom:-2px;right:-2px;border-left:0;border-top:0}
+.c-label{font-family:var(--mono);font-size:10px;letter-spacing:.24em;color:var(--faint);margin-bottom:14px;display:flex;justify-content:space-between}
+.formrow{display:grid;grid-template-columns:1fr 230px auto;gap:12px}
+.field{position:relative}
+.field label{position:absolute;top:-7px;left:12px;background:var(--panel);padding:0 6px;font-family:var(--mono);font-size:9px;letter-spacing:.2em;color:var(--faint)}
+input[type=text]{width:100%;background:#081622;border:1px solid var(--line);color:var(--ink);
+  font-family:var(--mono);font-size:16px;padding:14px 16px;border-radius:3px;outline:none;transition:.2s}
+input[type=text]::placeholder{color:#3d5a6c}
+input[type=text]:focus{border-color:var(--amber);box-shadow:0 0 0 3px rgba(255,176,46,.12),0 0 24px rgba(255,176,46,.08)}
+#btnRun{font-family:var(--disp);font-weight:700;font-size:14px;letter-spacing:.16em;
+  background:var(--amber);color:#151006;border:none;padding:0 34px;border-radius:3px;cursor:pointer;
+  display:flex;align-items:center;gap:10px;transition:.2s;white-space:nowrap}
+#btnRun:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 8px 26px rgba(255,176,46,.35);background:#ffc35c}
+#btnRun:active:not(:disabled){transform:translateY(0)}
+#btnRun:disabled{opacity:.55;cursor:wait}
+#btnRun .spin{width:12px;height:12px;border:2px solid #151006;border-top-color:transparent;border-radius:50%;display:none;animation:rot .7s linear infinite}
+#btnRun.busy .spin{display:block}
+@keyframes rot{to{transform:rotate(360deg)}}
+.samples{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;align-items:center}
+.samples .lbl{font-family:var(--mono);font-size:10px;letter-spacing:.18em;color:var(--faint)}
+.schip,.hchip{font-family:var(--mono);font-size:11px;padding:4px 11px;border:1px solid var(--line);color:var(--dim);background:transparent;border-radius:2px;cursor:pointer;transition:.18s}
+.schip:hover,.hchip:hover{border-color:var(--cyan);color:var(--cyan);transform:translateY(-1px)}
+.hchip{border-style:dashed}
+.samples .hist{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+/* pipeline */
+.pipeline{display:flex;list-style:none;margin-top:22px;border-top:1px dashed rgba(44,88,118,.4);padding-top:16px;gap:4px;flex-wrap:wrap}
+.pipeline li{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:#41627a;padding:4px 12px;position:relative;transition:.3s}
+.pipeline li:not(:last-child)::after{content:'›';position:absolute;right:-7px;color:#2b4a5f}
+.pipeline li .led{width:8px;height:8px;border-radius:50%;background:#1d3a4e;transition:.3s;flex:none}
+.pipeline li.active{color:var(--amber)}
+.pipeline li.active .led{background:var(--amber);box-shadow:0 0 10px var(--amber);animation:pulse .9s infinite}
+.pipeline li.done{color:var(--teal)}
+.pipeline li.done .led{background:var(--teal);box-shadow:0 0 6px rgba(47,224,168,.6)}
+/* ---------- results ---------- */
+.rhead{display:flex;align-items:center;gap:16px;margin:44px 0 18px;flex-wrap:wrap}
+.rhead h2{font-family:var(--disp);font-size:clamp(1.2rem,2.4vw,1.7rem);letter-spacing:.02em;font-weight:700}
+.rhead h2 span{color:var(--amber)}
+.rhead .meta{font-family:var(--mono);font-size:11px;color:var(--faint)}
+.ractions{margin-left:auto;display:flex;gap:10px}
+.gbtn{font-family:var(--mono);font-size:11px;letter-spacing:.12em;background:transparent;border:1px solid var(--line2);color:var(--dim);padding:8px 16px;border-radius:3px;cursor:pointer;transition:.2s}
+.gbtn:hover{border-color:var(--cyan);color:var(--cyan);transform:translateY(-1px)}
+.rgrid{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;align-items:stretch}
+.card{border:1px solid var(--line);background:linear-gradient(170deg,var(--panel),#0b1b29);border-radius:4px;position:relative;overflow:hidden;opacity:0;transform:translateY(16px);transition:opacity .5s ease,transform .5s ease,border-color .25s,box-shadow .25s}
+.card.show{opacity:1;transform:none}
+.card:hover{border-color:var(--line2);box-shadow:0 12px 34px rgba(0,0,0,.35);transform:translateY(-2px)}
+.card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--ac,var(--cyan))}
+/* ONE CARD PER ROW — every module card owns a full-width row.
+   No column spans, no row spans, no masonry: SPF / DKIM / DMARC never share a row. */
+.rgrid > .card{grid-column:auto;grid-row:auto;display:flex;flex-direction:column}
+.rgrid > .card > .cb{flex:1}
+/* the posture card uses its full width: gauge left, verdict + score bars right */
+.c-score .cb{display:grid;grid-template-columns:200px minmax(0,1fr);gap:6px 26px;align-items:start}
+.c-score .gaugewrap{grid-column:1;grid-row:span 6;align-self:center;justify-self:center}
+.c-score .verdict,.c-score .bd{grid-column:2}
+/* version marker in the topbar */
+.tstat.ver b{color:var(--amber)}
+.ch{display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid rgba(28,58,79,.7)}
+.ch .cid{font-family:var(--mono);font-size:9px;letter-spacing:.2em;color:var(--ac,var(--cyan));border:1px solid currentColor;padding:2px 7px;border-radius:2px;opacity:.85}
+.ch h3{font-family:var(--disp);font-size:13px;letter-spacing:.14em;font-weight:700}
+.ch .chst{margin-left:auto;font-family:var(--mono);font-size:10px;letter-spacing:.1em}
+.cb{padding:18px;overflow-x:auto}
+@media(max-width:1000px){.rgrid,.diaggrid{grid-template-columns:minmax(0,1fr)!important}}
+@media(max-width:900px){.deck{grid-template-columns:1fr}.formrow{grid-template-columns:1fr}#btnRun{padding:14px}}
+/* chips */
+.chip{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10px;letter-spacing:.08em;padding:3px 9px;border-radius:2px;border:1px solid;white-space:nowrap}
+.chip.ok{color:var(--teal);border-color:rgba(47,224,168,.45);background:rgba(47,224,168,.08)}
+.chip.warn{color:var(--amber);border-color:rgba(255,176,46,.45);background:rgba(255,176,46,.08)}
+.chip.fail{color:var(--red);border-color:rgba(255,92,108,.45);background:rgba(255,92,108,.08)}
+.chip.info{color:var(--cyan);border-color:rgba(57,194,255,.45);background:rgba(57,194,255,.08)}
+.chip.mut{color:var(--dim);border-color:var(--line2);background:transparent}
+/* gauge */
+.gaugewrap{position:relative;width:190px;margin:6px auto 14px}
+.gauge{width:100%;transform:rotate(-90deg)}
+.g-bg{fill:none;stroke:#13293a;stroke-width:10}
+.g-val{fill:none;stroke:var(--amber);stroke-width:10;stroke-linecap:butt;stroke-dasharray:477.5;stroke-dashoffset:477.5;transition:stroke-dashoffset 1.4s cubic-bezier(.2,.8,.2,1),stroke .4s}
+.g-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.g-num{font-family:var(--disp);font-weight:700;font-size:52px;line-height:1}
+.g-lab{font-family:var(--mono);font-size:9px;letter-spacing:.24em;color:var(--faint);margin-top:6px}
+.verdict{text-align:center;margin-bottom:16px}
+.bd{display:grid;grid-template-columns:86px 1fr 52px;gap:10px;align-items:center;padding:7px 0;border-top:1px dashed rgba(44,88,118,.35);font-family:var(--mono);font-size:11px}
+.bd .l{color:var(--dim);letter-spacing:.08em}
+.bd .t{height:6px;background:#122a3c;border-radius:1px;overflow:hidden}
+.bd .t i{display:block;height:100%;width:0;background:var(--teal);transition:width 1s cubic-bezier(.2,.8,.2,1)}
+.bd .v{text-align:right;color:var(--faint)}
+/* tables */
+.tbl{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px}
+.tbl th{text-align:left;font-size:9px;letter-spacing:.18em;color:var(--faint);font-weight:500;padding:6px 8px;border-bottom:1px solid var(--line)}
+.tbl td{padding:9px 8px;border-bottom:1px solid rgba(28,58,79,.5);vertical-align:top}
+.tbl tr:last-child td{border-bottom:0}
+.tbl tr{transition:background .15s}
+.tbl tbody tr:hover{background:rgba(57,194,255,.04)}
+.tbl .num{color:var(--amber)}
+.tbl .host{color:var(--ink);word-break:break-all}
+.ip{font-size:11px;color:var(--cyan);background:rgba(57,194,255,.07);border:1px solid rgba(57,194,255,.2);padding:1px 7px;border-radius:2px;margin:1px 3px 1px 0;display:inline-block}
+/* notes */
+.note{font-size:13px;padding:12px 14px;border-left:3px solid;border-radius:0 3px 3px 0;margin-bottom:12px}
+.note.ok{border-color:var(--teal);background:rgba(47,224,168,.06)}
+.note.warn{border-color:var(--amber);background:rgba(255,176,46,.06)}
+.note.fail{border-color:var(--red);background:rgba(255,92,108,.07)}
+.note.info{border-color:var(--cyan);background:rgba(57,194,255,.06)}
+/* raw record box */
+.rawbox{display:flex;align-items:flex-start;gap:10px;background:#071420;border:1px solid var(--line);border-radius:3px;padding:10px 12px;margin:10px 0}
+.rawbox code{font-family:var(--mono);font-size:11.5px;color:#bfe3ef;word-break:break-all;flex:1;line-height:1.6}
+.copybtn{font-family:var(--mono);font-size:9px;letter-spacing:.12em;background:none;border:1px solid var(--line2);color:var(--dim);padding:3px 8px;border-radius:2px;cursor:pointer;flex:none;transition:.2s}
+.copybtn:hover{color:var(--amber);border-color:var(--amber)}
+/* SPF tree */
+.spf-tree{background:#071420;border:1px solid var(--line);border-radius:3px;padding:12px 14px;margin-top:10px;max-height:240px;overflow:auto}
+.spfn{font-family:var(--mono);font-size:11.5px;padding:2.5px 0;color:#bfe3ef}
+.spfn .tp{color:var(--faint)}
+.lookbar{height:8px;background:#122a3c;border-radius:1px;overflow:hidden;margin:8px 0 4px}
+.lookbar i{display:block;height:100%;background:var(--teal);transition:width 1s ease}
+/* dmarc meter */
+.polmeter{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin:14px 0 6px}
+.polmeter div{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-align:center;padding:7px 2px;border:1px solid var(--line);color:var(--faint);border-radius:2px;transition:.3s}
+.polmeter div.on{color:#10222e;font-weight:600}
+.polmeter div.on.p0{background:var(--red);border-color:var(--red)}
+.polmeter div.on.p1{background:var(--amber);border-color:var(--amber)}
+.polmeter div.on.p2{background:var(--teal);border-color:var(--teal)}
+.polmeter div.on.p3{background:var(--cyan);border-color:var(--cyan)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-family:var(--mono);font-size:12px;margin-top:10px}
+.kv .k{color:var(--faint);letter-spacing:.08em}
+.kv .v{color:var(--ink);word-break:break-all}
+/* recommendations */
+.rec{display:flex;gap:14px;padding:13px 16px;border:1px solid var(--line);border-left-width:3px;border-radius:3px;margin-bottom:10px;background:rgba(13,32,48,.5);font-size:13.5px;transition:.2s}
+.rec:hover{transform:translateX(4px)}
+.rec .tag{font-family:var(--mono);font-size:9px;letter-spacing:.14em;padding:2px 8px;height:fit-content;border-radius:2px;flex:none;margin-top:2px}
+.rec.r0{border-left-color:var(--red)} .rec.r0 .tag{background:rgba(255,92,108,.15);color:var(--red)}
+.rec.r1{border-left-color:var(--amber)} .rec.r1 .tag{background:rgba(255,176,46,.15);color:var(--amber)}
+.rec.r2{border-left-color:var(--cyan)} .rec.r2 .tag{background:rgba(57,194,255,.15);color:var(--cyan)}
+.rec.r3{border-left-color:var(--teal)} .rec.r3 .tag{background:rgba(47,224,168,.15);color:var(--teal)}
+/* ---------- inventory ---------- */
+.inv-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px}
+.fchip{font-family:var(--mono);font-size:10px;letter-spacing:.1em;padding:5px 11px;border:1px solid var(--line);color:var(--dim);background:transparent;border-radius:2px;cursor:pointer;transition:.18s}
+.fchip:hover{border-color:var(--cyan);color:var(--cyan)}
+.fchip.on{border-color:var(--amber);color:var(--amber);background:rgba(255,176,46,.08)}
+.fchip b{opacity:.6;font-weight:500;margin-left:4px}
+#invSearch{width:230px;font-size:12px;padding:8px 12px;margin-left:auto}
+@media(max-width:700px){#invSearch{margin-left:0;width:100%}}
+.inv-count{font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--faint);margin-bottom:10px}
+.inv-scroll{max-height:520px;overflow:auto;border:1px solid var(--line);border-radius:3px;background:#071420}
+.inv-scroll::-webkit-scrollbar{width:8px;height:8px}
+.inv-scroll::-webkit-scrollbar-thumb{background:var(--line2);border-radius:4px}
+.inv-scroll .tbl th{position:sticky;top:0;background:#0a1c2c;z-index:2}
+.tchip{display:inline-block;font-family:var(--mono);font-size:10px;letter-spacing:.1em;padding:2px 9px;border-radius:2px;border:1px solid;font-weight:600}
+.tchip.t-A,.tchip.t-AAAA{color:var(--cyan);border-color:rgba(57,194,255,.5);background:rgba(57,194,255,.08)}
+.tchip.t-CNAME{color:var(--violet);border-color:rgba(160,139,255,.5);background:rgba(160,139,255,.08)}
+.tchip.t-TXT{color:var(--teal);border-color:rgba(47,224,168,.5);background:rgba(47,224,168,.08)}
+.tchip.t-MX{color:var(--amber);border-color:rgba(255,176,46,.5);background:rgba(255,176,46,.08)}
+.tchip.t-NS{color:#7fa6bc;border-color:rgba(127,166,188,.45);background:rgba(127,166,188,.08)}
+.tchip.t-PTR{color:#6ee0d2;border-color:rgba(110,224,210,.45);background:rgba(110,224,210,.08)}
+.tchip.t-SOA{color:#e8a0ff;border-color:rgba(232,160,255,.45);background:rgba(232,160,255,.08)}
+.src-tag{font-family:var(--mono);font-size:9px;letter-spacing:.12em;padding:2px 7px;border-radius:2px}
+.src-tag.zone{color:var(--dim);border:1px solid var(--line2)}
+.src-tag.rbl{color:var(--red);border:1px solid rgba(255,92,108,.4)}
+.inv-val{color:#bfe3ef;word-break:break-all;font-size:11.5px}
+/* log */
+.logwrap{margin:40px 0 26px;border:1px solid var(--line);border-radius:4px;overflow:hidden;background:#060f17}
+.loghead{display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid var(--line);background:#0a1926;font-family:var(--mono);font-size:10px;letter-spacing:.18em;color:var(--faint)}
+.loghead .lc{display:flex;gap:5px}
+.loghead .lc i{width:9px;height:9px;border-radius:50%;display:block}
+.loghead .clear{margin-left:auto;background:none;border:1px solid var(--line2);color:var(--faint);font-family:var(--mono);font-size:9px;letter-spacing:.12em;padding:3px 9px;cursor:pointer;border-radius:2px;transition:.2s}
+.loghead .clear:hover{color:var(--red);border-color:var(--red)}
+#logbody{height:230px;overflow-y:auto;padding:12px 16px;font-family:var(--mono);font-size:11.5px;line-height:1.75}
+#logbody::-webkit-scrollbar{width:8px}
+#logbody::-webkit-scrollbar-thumb{background:var(--line2);border-radius:4px}
+.ll{white-space:pre-wrap;word-break:break-all}
+.ll .ts{color:#33566b}
+.ll.info .m{color:var(--cyan)} .ll.ok .m{color:var(--teal)} .ll.warn .m{color:var(--amber)}
+.ll.fail .m{color:var(--red)} .ll.dns .m{color:var(--dim)}
+.caret{display:inline-block;width:8px;height:13px;background:var(--amber);vertical-align:-2px;animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+/* footer */
+footer{border-top:1px solid var(--line);padding:26px 0 40px;font-family:var(--mono);font-size:11px;color:var(--faint);line-height:1.9}
+footer .wrap{display:flex;gap:40px;flex-wrap:wrap}
+footer .col{max-width:520px}
+footer b{color:var(--dim);letter-spacing:.14em}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+/* note: the scan sweep line is moved by JS (see startSweep in mx-recon.js), so it still
+   travels even where @keyframes are suppressed — reduced motion only calms it down */
+</style>
+</head>
+<body data-mx-recon-version="{{ version }}">
+<div class="bg-grid"></div><div class="bg-glow"></div><div class="scanline"></div>
+
+<header class="topbar">
+  <div class="wrap">
+    <div class="brand">
+      <svg width="22" height="22" viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="13" stroke="#ffb02e" stroke-width="2"/><circle cx="16" cy="16" r="5" stroke="#39c2ff" stroke-width="2"/><path d="M16 1v7M16 24v7M1 16h7M24 16h7" stroke="#ffb02e" stroke-width="2"/></svg>
+      MX-RECON <span class="v">v2.5</span>
+    </div>
+    <div class="tspace"></div>
+    <div class="tstat ver hidesm">BUILD <b>v{{ version }}</b></div>
+    <div class="tstat hidesm">SESSION <b id="sessId">—</b></div>
+    <div class="tstat">UTC <b id="clock">--:--:--</b></div>
+    <div class="tstat"><span class="dot" id="resDot"></span><span id="resLabel">RESOLVER: probing…</span></div>
+  </div>
+</header>
+
+<main class="wrap shell">
+
+  <!-- ============ SIDEBAR NAV ============ -->
+  <aside class="sidenav" id="sidenav">
+    <div class="navbrand">MX-RECON <span>NAV</span></div>
+    <nav class="navgroup">
+      <h5>MODULES</h5>
+      <a href="#card-mx"><b>MX</b><span>mail exchangers</span></a>
+      <a href="#card-dns"><b>CNAME</b><span>zone records</span></a>
+      <a href="#card-spf"><b>SPF</b><span>policy tree</span></a>
+      <a href="#card-dkim"><b>DKIM</b><span>signing keys</span></a>
+      <a href="#card-dmarc"><b>DMARC</b><span>posture</span></a>
+      <a href="#card-relay"><b>RELAY</b><span>echo-spoof exposure</span></a>
+      <a href="#card-mx"><b>PTR</b><span>rDNS hygiene</span></a>
+      <a href="#card-rbl"><b>RBL ×10</b><span>blacklist matrix</span></a>
+      <a href="#card-dns"><b>MTA-STS</b><span>transport policy</span></a>
+      <a href="#card-dns"><b>TLS-RPT</b><span>TLS reporting</span></a>
+      <a href="#card-dns"><b>BIMI</b><span>brand indicators</span></a>
+      <a href="#card-control"><b>WHOIS</b><span>registrar / expiry</span></a>
+      <a href="#card-control"><b>NS</b><span>who serves the zone</span></a>
+    </nav>
+    <nav class="navgroup">
+      <h5>REPORT</h5>
+      <a href="#card-score"><b>POSTURE</b><span>score /100</span></a>
+      <a href="#card-rep"><b>REPUTATION</b><span>spam lists</span></a>
+      <a href="#card-rec"><b>REMEDIATION</b><span>directives</span></a>
+      <a href="#card-inv"><b>INVENTORY</b><span>raw records</span></a>
+    </nav>
+    <nav class="navgroup">
+      <h5>TOOLS</h5>
+      <a href="#diag"><b>DIAGNOSTICS</b><span>why did it spam?</span></a>
+      <a href="#card-rblcheck"><b>RBL SELF-TEST</b><span>is Spamhaus answering?</span></a>
+    </nav>
+  </aside>
+
+  <div class="content">
+
+  <!-- ============ COMMAND DECK ============ -->
+  <section class="deck">
+    <div>
+      <div class="kicker">EMAIL SECURITY TESTING · DNS HOST RECORD FORENSICS</div>
+      <h1>DISSECT ANY<br>DOMAIN'S <span class="alt">MAIL STACK</span></h1>
+      <p class="lead">Live reconnaissance against a domain's entire email delivery chain — MX topology,
+      SPF policy trees, DKIM signatures, DMARC posture, reverse-DNS hygiene and real-time blacklist /
+      spam-domain lookups across 10 RBL zones. Every observed record is captured into a full raw inventory.
+      All reconnaissance now executes server-side in a hardened Python (dnspython) engine —
+      the scan logic never ships to the browser, targets are strictly validated and every request is rate-limited.</p>
+      <div class="mods">
+        <span class="mod">MX</span><span class="mod">CNAME</span><span class="mod">SPF</span>
+        <span class="mod">DKIM</span><span class="mod">DMARC</span><span class="mod">PTR</span>
+        <span class="mod">RBL ×10</span><span class="mod">MTA-STS</span><span class="mod">TLS-RPT</span>
+        <span class="mod">BIMI</span><span class="mod">WHOIS</span><span class="mod">NS CONTROL</span><span class="mod">FULL RECORD DUMP</span>
+      </div>
+    </div>
+    <aside class="spec">
+      <h4>// PROBE MANIFEST</h4>
+      <div class="spec-row"><span class="k">MODULES</span><span class="v a">11 ACTIVE + INVENTORY</span></div>
+      <div class="spec-row"><span class="k">CHECKS PER SCAN</span><span class="v c">60–150</span></div>
+      <div class="spec-row"><span class="k">TRANSPORT</span><span class="v">HTTPS · JSON API</span></div>
+      <div class="spec-row"><span class="k">ENGINE</span><span class="v g">PYTHON · dnspython (SERVER-SIDE)</span></div>
+      <div class="spec-row"><span class="k">DOMAIN CONTROL</span><span class="v">WHOIS/RDAP · NS · SOA · DNSSEC</span></div>
+      <div class="spec-row"><span class="k">RBL ZONES</span><span class="v">SPAMHAUS · SPAMCOP · SORBS +7</span></div>
+      <div class="spec-row"><span class="k">RECORD CAPTURE</span><span class="v g">A·AAAA·CNAME·TXT·MX·NS·PTR·SOA</span></div>
+      <div class="spec-row"><span class="k">DATA EXFILTRATION</span><span class="v g">NONE — ENGINE RUNS SERVER-SIDE</span></div>
+    </aside>
+  </section>
+
+  <!-- ============ SCAN CONSOLE ============ -->
+  <section class="console" id="consoleBox">
+    <div hidden>{% csrf_token %}</div>
+    <div class="c-label"><span>TARGET ACQUISITION</span><span>PRESS ⏎ TO ENGAGE</span></div>
+    <div class="formrow">
+      <div class="field"><label>HOSTNAME / DOMAIN / EMAIL</label>
+        <input type="text" id="inDomain" placeholder="e.g. example.com" autocomplete="off" spellcheck="false"></div>
+      <div class="field"><label>DKIM SELECTOR (OPT.)</label>
+        <input type="text" id="inSelector" placeholder="blank = auto-probe 18" autocomplete="off" spellcheck="false"></div>
+      <div class="field resolver"><label>RESOLVER</label>
+        <select id="inResolver" title="Which DNS resolver performs the lookups"></select></div>
+      <button id="btnRun"><span class="spin"></span><span id="btnRunTxt">RUN SCAN</span></button>
+    </div>
+    <div class="samples">
+      <span class="lbl">SAMPLES ›</span>
+      <button class="schip" data-d="gmail.com">gmail.com</button>
+      <button class="schip" data-d="microsoft.com">microsoft.com</button>
+      <button class="schip" data-d="proton.me">proton.me</button>
+      <button class="schip" data-d="yahoo.com">yahoo.com</button>
+      <button class="schip" data-d="cloudflare.com">cloudflare.com</button>
+      <span class="hist" id="histWrap"><span class="lbl">RECENT ›</span></span>
+    </div>
+    <ol class="pipeline" id="pipeline">
+      <li data-step="enum"><span class="led"></span>01 ENUM</li>
+      <li data-step="mx"><span class="led"></span>02 MX</li>
+      <li data-step="spf"><span class="led"></span>03 SPF</li>
+      <li data-step="dkim"><span class="led"></span>04 DKIM</li>
+      <li data-step="dmarc"><span class="led"></span>05 DMARC</li>
+      <li data-step="rbl"><span class="led"></span>06 RBL</li>
+      <li data-step="control"><span class="led"></span>07 CONTROL</li>
+      <li data-step="report"><span class="led"></span>08 REPORT</li>
+    </ol>
+  </section>
+
+  <!-- ============ RESULTS ============ -->
+  <section id="results" class="hide">
+    <div class="rhead">
+      <h2>ANALYSIS REPORT — <span id="rDomain"></span></h2>
+      <span class="meta" id="rMeta"></span>
+      <div class="ractions">
+        <button class="gbtn" id="btnCopySummary">📋 COPY SUMMARY</button>
+        <button class="gbtn" id="btnExport">⬇ EXPORT JSON</button>
+        <button class="gbtn" id="btnRescan">⟳ RE-SCAN</button>
+      </div>
+    </div>
+    <div class="rgrid">
+
+      <article id="card-score" class="card c-score" style="--ac:var(--amber)">
+        <header class="ch"><span class="cid">M-01</span><h3>POSTURE SCORE</h3><span class="chst" id="st-score"></span></header>
+        <div class="cb" id="cb-score"></div>
+      </article>
+
+      <article id="card-mx" class="card c-mx" style="--ac:var(--cyan)">
+        <header class="ch"><span class="cid">M-02</span><h3>MX INFRASTRUCTURE</h3><span class="chst" id="st-mx"></span></header>
+        <div class="cb" id="cb-mx"></div>
+      </article>
+
+      <article id="card-spf" class="card c-spf" style="--ac:var(--teal)">
+        <header class="ch"><span class="cid">M-03</span><h3>SPF POLICY · INCLUDE TREE</h3><span class="chst" id="st-spf"></span></header>
+        <div class="cb" id="cb-spf"></div>
+      </article>
+
+      <article id="card-dkim" class="card c-dkim" style="--ac:var(--violet)">
+        <header class="ch"><span class="cid">M-04</span><h3>DKIM SIGNING KEYS</h3><span class="chst" id="st-dkim"></span></header>
+        <div class="cb" id="cb-dkim"></div>
+      </article>
+
+      <article id="card-dmarc" class="card c-dmarc" style="--ac:var(--amber)">
+        <header class="ch"><span class="cid">M-05</span><h3>DMARC POSTURE</h3><span class="chst" id="st-dmarc"></span></header>
+        <div class="cb" id="cb-dmarc"></div>
+      </article>
+      <article id="card-relay" class="card c-relay" style="--ac:var(--red)">
+        <header class="ch"><span class="cid">M-06</span><h3>RELAY / ECHO-SPOOF EXPOSURE</h3><span class="chst" id="st-relay"></span></header>
+        <div class="cb" id="cb-relay"></div>
+      </article>
+
+
+
+      <article id="card-rep" class="card c-rep" style="--ac:var(--red)">
+        <header class="ch"><span class="cid">M-07</span><h3>DOMAIN REPUTATION · SPAM LISTS</h3><span class="chst" id="st-rep"></span></header>
+        <div class="cb" id="cb-rep"></div>
+      </article>
+
+      <article id="card-rbl" class="card c-rbl" style="--ac:var(--red)">
+        <header class="ch"><span class="cid">M-08</span><h3>IP BLACKLIST MATRIX</h3><span class="chst" id="st-rbl"></span></header>
+        <div class="cb" id="cb-rbl"></div>
+      </article>
+
+      <article id="card-dns" class="card c-dns" style="--ac:var(--cyan)">
+        <header class="ch"><span class="cid">M-09</span><h3>ZONE FILE &amp; PROTOCOLS</h3><span class="chst" id="st-dns"></span></header>
+        <div class="cb" id="cb-dns"></div>
+      </article>
+
+      <article id="card-control" class="card c-control" style="--ac:var(--violet)">
+        <header class="ch"><span class="cid">M-10</span><h3>DOMAIN CONTROL — WHOIS / NS</h3><span class="chst" id="st-control"></span></header>
+        <div class="cb" id="cb-control"></div>
+      </article>
+
+      <article id="card-rec" class="card c-rec" style="--ac:var(--teal)">
+        <header class="ch"><span class="cid">M-11</span><h3>REMEDIATION DIRECTIVES</h3><span class="chst" id="st-rec"></span></header>
+        <div class="cb" id="cb-rec"></div>
+      </article>
+
+      <article id="card-inv" class="card c-inv" style="--ac:var(--cyan)">
+        <header class="ch"><span class="cid">M-12</span><h3>FULL RECORD INVENTORY — RAW CAPTURE</h3><span class="chst" id="st-inv"></span></header>
+        <div class="cb" id="cb-inv"></div>
+      </article>
+
+    </div>
+  </section>
+
+  <!-- ============ DIAGNOSTICS ============ -->
+  <section class="diag" id="diag">
+    <div class="diaghead">
+      <div>
+        <div class="kicker">MESSAGE FORENSICS · DELIVERABILITY TROUBLESHOOTING</div>
+        <h2>WHY DID THIS EMAIL GO TO SPAM?</h2>
+        <p class="lead small">Paste the raw headers of a delivered message (or the whole source). MX-RECON parses the
+        authentication results, DKIM signatures, Received chain and gateway/spam headers, then cross-checks them against
+        live DNS — the selector that was actually used, the SPF record evaluated against the sending IP, DMARC alignment,
+        reverse DNS and blacklists — and reports the root causes with concrete fixes.</p>
+      </div>
+      <div class="diagactions">
+        <button class="gbtn" id="btnDiagSample">LOAD SAMPLE</button>
+        <button class="gbtn" id="btnDiagClear">CLEAR</button>
+        <button class="gbtn" id="btnDiagCopy">📋 COPY SUMMARY</button>
+        <button class="gbtn primary" id="btnDiagRun"><span class="spin"></span><span id="btnDiagTxt">ANALYZE HEADERS</span></button>
+      </div>
+    </div>
+
+    <div class="diagform">
+      <textarea id="diagInput" spellcheck="false" placeholder="Paste raw email headers here, for example:&#10;&#10;Received: from ... by ...&#10;DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=selector; ...&#10;Authentication-Results: mx.example.net; spf=pass ...; dkim=fail ...; dmarc=none ...&#10;X-Spam-Flag: YES"></textarea>
+      <div class="diagmeta">
+        <label>DOMAIN OVERRIDE (OPT.) <input type="text" id="diagDomain" placeholder="auto-detected from From:" autocomplete="off" spellcheck="false"></label>
+        <span class="dim mono" id="diagHint">blank = detect the domain from the From:/envelope headers</span>
+      </div>
+    </div>
+
+    <!-- Standalone tool: works without pasting anything, answers "is Spamhaus
+         answering my resolver, or is it being refused / falsely cleaned?" -->
+    <article id="card-rblcheck" class="card" style="--ac:var(--violet);margin-top:18px">
+      <header class="ch"><span class="cid">T-01</span><h3>RBL RESOLVER SELF-TEST</h3><span class="chst" id="st-rblcheck"></span></header>
+      <div class="cb" id="cb-rblcheck"></div>
+    </article>
+
+    <div id="diagResults" class="hide">
+      <div class="diagverdict" id="diagVerdict"></div>
+      <div class="diaggrid">
+
+        <article id="card-diagcauses" class="card" style="--ac:var(--red)">
+          <header class="ch"><span class="cid">D-01</span><h3>ROOT CAUSES</h3><span class="chst" id="st-diagcauses"></span></header>
+          <div class="cb" id="cb-diagcauses"></div>
+        </article>
+
+        <article id="card-diagpass" class="card" style="--ac:var(--teal)">
+          <header class="ch"><span class="cid">D-02</span><h3>CHECKS PASSED</h3><span class="chst" id="st-diagpass"></span></header>
+          <div class="cb" id="cb-diagpass"></div>
+        </article>
+
+        <article id="card-diagauth" class="card" style="--ac:var(--cyan)">
+          <header class="ch"><span class="cid">D-03</span><h3>AUTHENTICATION RESULTS — EVERY HOP</h3><span class="chst" id="st-diagauth"></span></header>
+          <div class="cb" id="cb-diagauth"></div>
+        </article>
+
+        <article id="card-diagdkim" class="card" style="--ac:var(--violet)">
+          <header class="ch"><span class="cid">D-04</span><h3>DKIM SIGNATURES · DNS CROSS-CHECK</h3><span class="chst" id="st-diagdkim"></span></header>
+          <div class="cb" id="cb-diagdkim"></div>
+        </article>
+
+        <article id="card-diagspf" class="card" style="--ac:var(--teal)">
+          <header class="ch"><span class="cid">D-05</span><h3>SPF EVALUATION</h3><span class="chst" id="st-diagspf"></span></header>
+          <div class="cb" id="cb-diagspf"></div>
+        </article>
+
+        <article id="card-diaghops" class="card" style="--ac:var(--cyan)">
+          <header class="ch"><span class="cid">D-06</span><h3>RECEIVED CHAIN</h3><span class="chst" id="st-diaghops"></span></header>
+          <div class="cb" id="cb-diaghops"></div>
+        </article>
+
+        <article id="card-diaggate" class="card" style="--ac:var(--amber)">
+          <header class="ch"><span class="cid">D-07</span><h3>GATEWAY &amp; SPAM HEADERS</h3><span class="chst" id="st-diaggate"></span></header>
+          <div class="cb" id="cb-diaggate"></div>
+        </article>
+
+        <article id="card-diagdns" class="card" style="--ac:var(--cyan)">
+          <header class="ch"><span class="cid">D-08</span><h3>DNS CROSS-CHECK LOG</h3><span class="chst" id="st-diagdns"></span></header>
+          <div class="cb" id="cb-diagdns"></div>
+        </article>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ LOG ============ -->
+  <section class="logwrap">
+    <div class="loghead">
+      <span class="lc"><i style="background:var(--red)"></i><i style="background:var(--amber)"></i><i style="background:var(--teal)"></i></span>
+      SCAN LOG — STDOUT <span class="caret"></span>
+      <button class="clear" id="btnClearLog">CLEAR</button>
+    </div>
+    <div id="logbody"></div>
+  </section>
+
+  </div><!-- /.content -->
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="col"><b>NOTICE //</b> All lookups execute server-side through a hardened Python DNS engine (dnspython) —
+    no scan logic is exposed to the browser. Targets are strictly validated (no IP literals or internal names),
+    requests are rate-limited per client IP, and every probe runs inside a query/time budget. Some RBL operators
+    (notably Spamhaus) refuse queries from cloud resolvers — results marked <span style="color:var(--amber)">ERR/BLOCKED</span>
+    are inconclusive, not clean. Fix: use the <span class="mono">System default</span> resolver, or register
+    Spamhaus DQS and add the <span class="mono">*.dq.spamhaus.net</span> zones (see README).</div>
+    <div class="col"><b>OPERATOR NOTES //</b> Press <span style="color:var(--amber)">/</span> anywhere to focus the target field.
+    Enter engages the scan. Blank DKIM selector triggers auto-probing of 18 common selectors.
+    The M-10 inventory captures every answer record observed during the run — filter by type or search.
+    Export produces a machine-readable JSON dossier including the full inventory.<br>MX-RECON © 2026 — reconnaissance tooling, use responsibly.</div>
+  </div>
+</footer>
+
+<div class="infopop hide" id="infoPop" role="dialog" aria-modal="true" aria-labelledby="infoPopTitle">
+  <div class="infopop-backdrop" data-info-close></div>
+  <div class="infopop-panel">
+    <header>
+      <span class="info-emoji" id="infoPopEmoji">🔐</span>
+      <div>
+        <h3 id="infoPopTitle">SPF</h3>
+        <div class="info-full" id="infoPopFull">Sender Policy Framework</div>
+      </div>
+      <button class="infoclose" data-info-close aria-label="Close">✕</button>
+    </header>
+    <div class="info-q" id="infoPopQ"></div>
+    <div class="info-body" id="infoPopBody"></div>
+    <div class="info-example"><span class="lbl">EXAMPLE</span><code id="infoPopExample"></code></div>
+    <div class="info-note" id="infoPopNote"></div>
+  </div>
+</div>
+
+<div class="infopop hide" id="copyPop" role="dialog" aria-modal="true">
+  <div class="infopop-backdrop" data-copy-close></div>
+  <div class="infopop-panel">
+    <header>
+      <span class="info-emoji">📋</span>
+      <div>
+        <h3>SUMMARY</h3>
+        <div class="info-full" id="copyPopNote">select all and copy (Ctrl+C)</div>
+      </div>
+      <button class="infoclose" data-copy-close aria-label="Close">✕</button>
+    </header>
+    <textarea id="copyPopText" readonly spellcheck="false"></textarea>
+    <div class="info-related">
+      <button class="gbtn" id="copyPopCopy" type="button">COPY AGAIN</button>
+      <button class="gbtn" data-copy-close type="button">CLOSE</button>
+    </div>
+  </div>
+</div>
+
+<script src="{% static 'scanner/mx-recon.js' %}" defer></script>
+</body>
+</html>
+
